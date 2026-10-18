@@ -1,0 +1,39 @@
+{
+  "name": "atem-logger",
+  "version": "1.0.0",
+  "description": "Logs every Blackmagic ATEM program switch to a CMX 3600 EDL for DaVinci Resolve, with a browser control page. Runs on macOS, Windows and Docker.",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "node test/sim-test.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "atem-connection": "^3.8.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/La8Grt8/atem-logger.git"
+  },
+  "keywords": [
+    "atem",
+    "blackmagic",
+    "edl",
+    "davinci-resolve",
+    "cmx3600",
+    "video-switcher",
+    "multicam"
+  ],
+  "author": "Robert Metcalfe (Links Live Media)"
+}

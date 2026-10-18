@@ -1,0 +1,17 @@
+# ZimaBoard / any Docker host on the studio network.
+# EDLs land in ./edl on the host (or point it at a mounted NAS/SMB share).
+services:
+  atem-edl-logger:
+    build: .
+    image: atem-edl-logger:latest
+    container_name: atem-edl-logger
+    restart: unless-stopped
+    ports:
+      - "9920:9920"
+    environment:
+      ATEM_IP: 192.168.11.240
+      HOST_LABEL: Docker
+      TZ: America/Toronto        # needed for the "computer clock" timecode option and file timestamps
+    volumes:
+      - ./data:/data             # settings (IP, reel names, last folder)
+      - ./edl:/edl               # EDL output — change the left side to your share, e.g. /mnt/Project_32TB/EDL

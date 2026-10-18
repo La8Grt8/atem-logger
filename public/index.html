@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATEM Logger</title>
+<style>
+  :root { --bg:#0f1114; --panel:#181b20; --line:#2a2f37; --text:#e8eaed; --dim:#8b929c; --red:#e5484d; --green:#3dd68c; --amber:#f5a524; --blue:#4c9aff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:600; letter-spacing:.2px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:99px; background:var(--panel); border:1px solid var(--line); font-size:13px; color:var(--dim); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--dim); }
+  .ok .dot { background:var(--green); } .bad .dot { background:var(--red); }
+  main { max-width:1100px; margin:0 auto; padding:18px 16px 40px; display:grid; gap:16px; grid-template-columns: 1.15fr .85fr; }
+  @media (max-width:860px) { main { grid-template-columns:1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:0 0 12px; font-weight:600; }
+  .tc { font:600 52px/1 "SF Mono",ui-monospace,Menlo,monospace; letter-spacing:1px; font-variant-numeric:tabular-nums; }
+  .busrow { display:flex; gap:10px; margin:14px 0; }
+  .bus { flex:1; border-radius:8px; padding:10px 12px; border:1px solid var(--line); }
+  .bus small { display:block; font-size:11px; letter-spacing:1px; color:var(--dim); text-transform:uppercase; }
+  .bus b { font-size:18px; }
+  .bus.pgm { border-color:var(--red); background:rgba(229,72,77,.08); }
+  .bus.pvw { border-color:var(--green); background:rgba(61,214,140,.06); }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px; }
+  input, select { width:100%; background:#0f1114; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:9px 10px; font:inherit; }
+  input:focus, select:focus { outline:none; border-color:var(--blue); }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+  button { font:inherit; font-weight:600; border:0; border-radius:8px; padding:12px 16px; cursor:pointer; color:#fff; background:#2c323b; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .go { background:var(--green); color:#062b18; width:100%; font-size:18px; padding:16px; margin-top:14px; }
+  .stop { background:var(--red); width:100%; font-size:18px; padding:16px; margin-top:14px; }
+  .rec { display:inline-flex; align-items:center; gap:8px; color:var(--red); font-weight:700; letter-spacing:1px; }
+  .rec .dot { background:var(--red); animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .stats { display:flex; gap:18px; color:var(--dim); font-size:13px; margin-top:8px; flex-wrap:wrap; }
+  .stats b { color:var(--text); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { padding:6px 4px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.8px; }
+  td.mono { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums; }
+  td input { padding:5px 7px; }
+  .msg { margin-top:10px; padding:9px 12px; border-radius:6px; font-size:13px; display:none; }
+  .msg.err { display:block; background:rgba(229,72,77,.12); border:1px solid rgba(229,72,77,.4); }
+  .msg.warn { display:block; background:rgba(245,165,36,.1); border:1px solid rgba(245,165,36,.4); }
+  .msg.info { display:block; background:rgba(76,154,255,.1); border:1px solid rgba(76,154,255,.35); }
+  .path { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:12px; color:var(--dim); word-break:break-all; }
+  a { color:var(--blue); text-decoration:none; }
+  .markrow { display:flex; gap:8px; margin-top:12px; } .markrow input { flex:1; } .markrow button { background:var(--blue); }
+  details summary { cursor:pointer; color:var(--dim); font-size:13px; margin-top:14px; }
+  .span2 { grid-column:1 / -1; }
+  kbd { background:#0f1114; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ATEM Logger</h1>
+  <span id="conn" class="pill bad"><span class="dot"></span><span id="connText">Connecting…</span></span>
+  <span class="pill" id="hostPill"></span>
+</header>
+<main>
+  <section>
+    <h2>Logging</h2>
+    <div id="recBadge" style="display:none" class="rec"><span class="dot"></span>LOGGING</div>
+    <div class="tc" id="tc">--:--:--:--</div>
+    <div class="stats" id="stats"></div>
+    <div class="busrow">
+      <div class="bus pgm"><small>Program</small><b id="pgm">—</b></div>
+      <div class="bus pvw"><small>Preview</small><b id="pvw">—</b></div>
+    </div>
+
+    <div id="idle">
+      <label for="title">Show / episode title</label>
+      <input id="title" placeholder="Episode_23" autocomplete="off">
+      <label for="outdir">Save EDLs to folder</label>
+      <input id="outdir" class="pathin" autocomplete="off">
+      <button class="go" id="startBtn">Start EDL</button>
+    </div>
+
+    <div id="running" style="display:none">
+      <div class="path" id="curFile"></div>
+      <div class="markrow">
+        <input id="note" placeholder="Marker note (optional) — press M to mark" autocomplete="off">
+        <button id="markBtn">Marker</button>
+      </div>
+      <button class="stop" id="stopBtn">Stop EDL</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section>
+    <h2>Recent switches</h2>
+    <table><thead><tr><th>Source TC</th><th>Reel</th><th>Source</th></tr></thead><tbody id="recent"><tr><td colspan="3" style="color:var(--dim)">Not logging</td></tr></tbody></table>
+  </section>
+
+  <section>
+    <h2>Reel names</h2>
+    <p style="color:var(--dim);font-size:13px;margin:0 0 8px">Reel name written to the EDL for each input. Leave blank to use the ATEM short name. Name your camera files to match.</p>
+    <table><thead><tr><th>In</th><th>ATEM name</th><th>Reel (max 8)</th></tr></thead><tbody id="reels"></tbody></table>
+    <button id="saveReels" style="margin-top:10px">Save reel names</button>
+  </section>
+
+  <section>
+    <h2>EDL files</h2>
+    <div class="path" id="filesDir"></div>
+    <table><tbody id="files"></tbody></table>
+    <details>
+      <summary>Switcher &amp; timecode settings</summary>
+      <label for="ip">ATEM IP address</label>
+      <input id="ip">
+      <div class="row">
+        <div><label for="me">M/E bus</label><select id="me"><option value="0">M/E 1</option><option value="1">M/E 2</option></select></div>
+        <div><label for="tcsrc">Timecode source</label><select id="tcsrc"><option value="atem">Switcher timecode</option><option value="clock">This computer's clock</option></select></div>
+      </div>
+      <label for="recstart">Timeline start TC</label>
+      <input id="recstart" placeholder="01:00:00:00">
+      <button id="saveSettings" style="margin-top:12px">Save settings</button>
+    </details>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const api = async (url, body) => {
+  const r = await fetch(url, body === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function say(text, kind='err') { const m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; if (kind !== 'err') setTimeout(() => { if (m.textContent === text) m.className = 'msg'; }, 6000); }
+function clearMsg() { $('msg').className = 'msg'; }
+
+let wasActive = null, settings = null, lastRecentKey = '';
+
+async function loadSettings() {
+  settings = await api('/api/settings');
+  if (!$('title').value) $('title').value = settings.lastTitle || '';
+  $('outdir').value = settings.outputDir;
+  $('ip').value = settings.atemIp; $('me').value = settings.me; $('tcsrc').value = settings.tcSource; $('recstart').value = settings.recordStartTc;
+}
+
+async function loadReels() {
+  const inputs = await api('/api/inputs').catch(() => []);
+  $('reels').innerHTML = inputs.length ? inputs.map(i => `<tr><td>${i.id}</td><td>${esc(i.longName)}</td><td><input data-in="${i.id}" maxlength="8" value="${esc(i.reel)}" placeholder="${esc(i.autoReel)}"></td></tr>`).join('')
+    : '<tr><td colspan="3" style="color:var(--dim)">Connect to the switcher to list inputs</td></tr>';
+}
+
+async function loadFiles() {
+  const f = await api('/api/files').catch(() => null);
+  if (!f) return;
+  $('filesDir').textContent = f.dir + (f.error ? ' — ' + f.error : '');
+  $('files').innerHTML = f.files.length ? f.files.map(x => `<tr><td><a href="/api/files/${encodeURIComponent(x.name)}" download>${esc(x.name)}</a></td><td style="color:var(--dim);white-space:nowrap">${new Date(x.modified).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('')
+    : '<tr><td style="color:var(--dim)">No EDLs in this folder yet</td></tr>';
+}
+
+async function poll() {
+  let s;
+  try { s = await api('/api/status'); } catch { $('conn').className = 'pill bad'; $('connText').textContent = 'Logger app not reachable'; return; }
+  const a = s.atem, L = s.logging;
+  $('conn').className = 'pill ' + (a.connected ? 'ok' : 'bad');
+  $('connText').textContent = a.connected ? `${a.model || 'ATEM'} · ${a.ip}` : `Not connected · ${a.ip}`;
+  $('hostPill').textContent = 'Running on ' + s.host;
+  $('pgm').textContent = a.program ? a.program.name : '—';
+  $('pvw').textContent = a.preview ? a.preview.name : '—';
+  $('startBtn').disabled = !a.connected;
+
+  $('idle').style.display = L.active ? 'none' : '';
+  $('running').style.display = L.active ? '' : 'none';
+  $('recBadge').style.display = L.active ? 'inline-flex' : 'none';
+  $('tc').textContent = L.active ? L.currentTimecode : (a.connected ? 'Ready' : '--:--:--:--');
+  $('stats').innerHTML = L.active
+    ? `<span><b>${esc(L.title)}</b></span><span>Switches <b>${L.events}</b></span><span>Markers <b>${L.markers}</b></span><span>${esc(L.frameRate)} ${L.dropFrame ? 'DF' : 'NDF'} · TC from ${L.timecodeSource === 'atem' ? 'switcher' : 'computer clock'}</span>`
+    : '';
+  $('curFile').textContent = L.active ? L.edlFile : '';
+
+  if (L.active && !a.connected) say('Switcher connection lost — logging is still running and will pick up cuts as soon as it reconnects. Cuts made while disconnected are not captured.', 'warn');
+  else if (L.writeError) say('Could not write the EDL file: ' + L.writeError + ' — check the drive is mounted.');
+  else if (L.note) say(L.note, 'warn');
+  else if (s.recoveredSession && !L.active) {
+    if (!$('dismiss')) {
+      $('msg').className = 'msg warn';
+      $('msg').innerHTML = `The logger was restarted during “${esc(s.recoveredSession.title)}”. Cuts up to the restart are saved in <span class="path">${esc(s.recoveredSession.edl)}</span> · <a href="#" id="dismiss">Dismiss</a>`;
+      $('dismiss').onclick = e => { e.preventDefault(); api('/api/dismiss-recovered', {}).then(clearMsg); };
+    }
+  }
+  else if ($('msg').className.includes('warn') && a.connected) clearMsg();
+
+  const key = (L.recent || []).map(r => r.timecode).join();
+  if (key !== lastRecentKey) {
+    lastRecentKey = key;
+    $('recent').innerHTML = L.recent && L.recent.length
+      ? L.recent.map(r => `<tr><td class="mono">${r.timecode}</td><td class="mono">${esc(r.reel)}</td><td>${esc(r.name)}${r.transition === 'D' ? ' <span style="color:var(--dim)">(mix)</span>' : ''}</td></tr>`).join('')
+      : `<tr><td colspan="3" style="color:var(--dim)">${L.active ? 'Waiting for the first switch' : 'Not logging'}</td></tr>`;
+  }
+  if (wasActive !== null && wasActive !== L.active) loadFiles();
+  if (wasActive === null || (a.connected && !$('reels').querySelector('input'))) loadReels();
+  wasActive = L.active;
+}
+
+$('startBtn').onclick = async () => {
+  clearMsg(); $('startBtn').disabled = true;
+  try { const r = await api('/api/start', { title: $('title').value, outputDir: $('outdir').value }); say('Logging to ' + r.file, 'info'); }
+  catch (e) { say(e.message); }
+  poll();
+};
+$('stopBtn').onclick = async () => {
+  if (!confirm('Stop the EDL and finalize the file?')) return;
+  try { const r = await api('/api/stop', {}); say(`EDL finished: ${r.events} switches over ${r.length}. ${r.edl}${r.markers ? ' · Markers: ' + r.markers : ''}`, 'info'); }
+  catch (e) { say(e.message); }
+  poll();
+};
+async function mark() {
+  try { const r = await api('/api/marker', { note: $('note').value }); $('note').value = ''; say(`Marker “${r.note}” at ${r.timeline}`, 'info'); }
+  catch (e) { say(e.message); }
+}
+$('markBtn').onclick = mark;
+$('note').addEventListener('keydown', e => { if (e.key === 'Enter') mark(); });
+document.addEventListener('keydown', e => {
+  if ((e.key === 'm' || e.key === 'M') && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName) && wasActive) { e.preventDefault(); mark(); }
+});
+$('saveReels').onclick = async () => {
+  const reelNames = {};
+  document.querySelectorAll('#reels input').forEach(i => { reelNames[i.dataset.in] = i.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''); });
+  try { await api('/api/settings', { reelNames }); await loadReels(); say(wasActive ? 'Reel names saved — they apply from the next EDL you start.' : 'Reel names saved.', 'info'); } catch (e) { say(e.message); }
+};
+$('saveSettings').onclick = async () => {
+  try { await api('/api/settings', { atemIp: $('ip').value, me: Number($('me').value), tcSource: $('tcsrc').value, recordStartTc: $('recstart').value, outputDir: $('outdir').value }); say('Settings saved.', 'info'); loadFiles(); }
+  catch (e) { say(e.message); }
+};
+$('outdir').addEventListener('change', async () => { await api('/api/settings', { outputDir: $('outdir').value }).catch(() => {}); loadFiles(); });
+
+loadSettings().then(() => { loadFiles(); poll(); setInterval(poll, 250); setInterval(loadFiles, 15000); });
+</script>
+</body>
+</html>
