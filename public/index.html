@@ -48,7 +48,11 @@
   .msg.info { display:block; background:rgba(76,154,255,.1); border:1px solid rgba(76,154,255,.35); }
   .path { font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:12px; color:var(--dim); word-break:break-all; }
   a { color:var(--blue); text-decoration:none; }
-  .markrow { display:flex; gap:8px; margin-top:12px; } .markrow input { flex:1; } .markrow button { background:var(--blue); }
+  .markbox { margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+  .mark { background:var(--blue); width:100%; font-size:18px; padding:16px; }
+  .markbox input { margin-top:8px; }
+  .markbox input:disabled { opacity:.45; }
+  .hint { color:var(--dim); font-size:12px; margin-top:6px; }
   details summary { cursor:pointer; color:var(--dim); font-size:13px; margin-top:14px; }
   .span2 { grid-column:1 / -1; }
   kbd { background:#0f1114; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
@@ -81,11 +85,13 @@
 
     <div id="running" style="display:none">
       <div class="path" id="curFile"></div>
-      <div class="markrow">
-        <input id="note" placeholder="Marker note (optional) — press M to mark" autocomplete="off">
-        <button id="markBtn">Marker</button>
-      </div>
       <button class="stop" id="stopBtn">Stop EDL</button>
+    </div>
+
+    <div class="markbox">
+      <button class="mark" id="markBtn" disabled>◆ Add Marker</button>
+      <input id="note" placeholder="Marker note (optional) — Enter to mark" autocomplete="off" disabled>
+      <div class="hint" id="markHint">Start an EDL to add markers. Shortcut: press <kbd>M</kbd>.</div>
     </div>
     <div class="msg" id="msg"></div>
   </section>
@@ -174,6 +180,8 @@ async function poll() {
     ? `<span><b>${esc(L.title)}</b></span><span>Switches <b>${L.events}</b></span><span>Markers <b>${L.markers}</b></span><span>${esc(L.frameRate)} ${L.dropFrame ? 'DF' : 'NDF'} · TC from ${L.timecodeSource === 'atem' ? 'switcher' : 'computer clock'}</span>`
     : '';
   $('curFile').textContent = L.active ? L.edlFile : '';
+  $('markBtn').disabled = !L.active; $('note').disabled = !L.active;
+  $('markHint').innerHTML = L.active ? `Markers so far: <b>${L.markers}</b> · Shortcut: press <kbd>M</kbd>` : 'Start an EDL to add markers. Shortcut: press <kbd>M</kbd>.';
 
   if (L.active && !a.connected) say('Switcher connection lost — logging is still running and will pick up cuts as soon as it reconnects. Cuts made while disconnected are not captured.', 'warn');
   else if (L.writeError) say('Could not write the EDL file: ' + L.writeError + ' — check the drive is mounted.');
