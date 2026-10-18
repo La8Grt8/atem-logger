@@ -51,11 +51,44 @@ administrator, which adds the firewall rule for you.
 The installer opens the control page when it's done. From then on, ATEM Logger starts on its own
 when you log in.
 
-### Docker / Linux / NAS
+### Docker (ZimaBoard/CasaOS, Synology, Unraid, Linux, NAS)
+
+A ready-made image for Intel/AMD and ARM is published at
+**`ghcr.io/la8grt8/atem-logger`**, so you don't have to build anything.
+
+**Quick start** (change the IP and the EDL folder):
+
 ```
-docker compose up -d --build
+docker run -d --name atem-logger --restart unless-stopped \
+  -p 9920:9920 \
+  -e ATEM_IP=192.168.11.240 -e TZ=America/Toronto \
+  -v ./atem-logger/data:/data \
+  -v ./atem-logger/edl:/edl \
+  ghcr.io/la8grt8/atem-logger:latest
 ```
-Edit `docker-compose.yml` first to set the switcher IP and where EDLs should be saved.
+
+**Docker Compose:** download [`docker-compose.yml`](docker-compose.yml), edit the IP, time
+zone and EDL folder, then run:
+
+```
+docker compose up -d
+```
+
+**CasaOS (ZimaBoard):** App Store → **Custom Install** → **Import**, paste the contents of
+`docker-compose.yml`, adjust the EDL folder path, and install.
+
+Then open **http://&lt;docker-host-ip&gt;:9920**.
+
+- EDLs are written to the `/edl` volume. Map it to a NAS or SMB share to have them land
+  straight in your project storage, or download them from the control page.
+- Settings persist in the `/data` volume.
+- Set `TZ` to your time zone, or file timestamps and the "computer clock" timecode will be in UTC.
+- The container needs to reach the switcher on **UDP 9910**.
+- Update: `docker compose pull && docker compose up -d`.
+- Tags: `latest` (main branch), version tags such as `1.0.0` and `1.0`, and `sha-xxxxxxx`.
+
+To build the image yourself instead, run `docker build -t atem-logger .` in this folder, or
+use `build: .` in the compose file.
 
 ## First run
 
@@ -89,7 +122,7 @@ e.g. jam-synced with Tentacle Sync or fed from the same generator as the switche
 | Timecode source | same | Switcher timecode |
 | Timeline start TC | same | 01:00:00:00 |
 | Save folder | main panel | `~/Movies/ATEM EDLs` (Mac), `%USERPROFILE%\Videos\ATEM EDLs` (Windows) |
-| Port | `PORT` environment variable when installing | 9920 |
+| Port | `PORT` environment variable when installing (Docker: change the left side of `9920:9920`) | 9920 |
 
 Settings are stored in `~/.atem-logger/settings.json` (Mac) or `%USERPROFILE%\.atem-logger\settings.json` (Windows).
 

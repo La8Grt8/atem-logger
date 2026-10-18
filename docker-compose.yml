@@ -1,17 +1,20 @@
-# ZimaBoard / any Docker host on the studio network.
-# EDLs land in ./edl on the host (or point it at a mounted NAS/SMB share).
+# ATEM Logger on any Docker host (ZimaBoard/CasaOS, Synology, Unraid, Linux, Docker Desktop).
+#   docker compose up -d
+# Then open http://<host-ip>:9920
 services:
-  atem-edl-logger:
-    build: .
-    image: atem-edl-logger:latest
-    container_name: atem-edl-logger
+  atem-logger:
+    image: ghcr.io/la8grt8/atem-logger:latest
+    # To build from this folder instead of pulling the published image, comment out
+    # the line above and uncomment the next one, then run: docker compose up -d --build
+    # build: .
+    container_name: atem-logger
     restart: unless-stopped
     ports:
       - "9920:9920"
     environment:
-      ATEM_IP: 192.168.11.240
-      HOST_LABEL: Docker
-      TZ: America/Toronto        # needed for the "computer clock" timecode option and file timestamps
+      ATEM_IP: 192.168.11.240    # your switcher's IP (can also be changed on the web page)
+      HOST_LABEL: Docker         # name shown in the page header
+      TZ: America/Toronto        # your time zone: used for file timestamps and "computer clock" timecode
     volumes:
       - ./data:/data             # settings (IP, reel names, last folder)
-      - ./edl:/edl               # EDL output — change the left side to your share, e.g. /mnt/Project_32TB/EDL
+      - ./edl:/edl               # EDL output; point the left side at a NAS/SMB share if you like, e.g. /mnt/Projects/EDL
