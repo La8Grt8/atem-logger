@@ -93,7 +93,7 @@
       <label for="title">Show / episode title</label>
       <input id="title" placeholder="Episode_23" autocomplete="off">
       <label for="outdir">Save EDLs to folder</label>
-      <input id="outdir" class="pathin" autocomplete="off">
+      <input id="outdir" class="pathin" autocomplete="off" placeholder="/Volumes/Drive/Show/Episode/EDL">
       <button class="go" id="startBtn">Start EDL</button>
     </div>
 
@@ -248,7 +248,7 @@ async function poll() {
 
 $('startBtn').onclick = async () => {
   clearMsg(); $('startBtn').disabled = true;
-  try { const r = await api('/api/start', { title: $('title').value, outputDir: $('outdir').value }); say('Logging to ' + r.file, 'info'); }
+  try { const r = await api('/api/start', { title: $('title').value, outputDir: $('outdir').value }); say('Logging to ' + r.file, 'info'); api('/api/settings').then(st => { $('outdir').value = st.outputDir; }).catch(() => {}); }
   catch (e) { say(e.message); }
   poll();
 };
@@ -276,7 +276,11 @@ $('saveSettings').onclick = async () => {
   try { await api('/api/settings', { atemIp: $('ip').value, me: Number($('me').value), tcSource: $('tcsrc').value, recordStartTc: $('recstart').value, outputDir: $('outdir').value }); say('Settings saved.', 'info'); loadFiles(); }
   catch (e) { say(e.message); }
 };
-$('outdir').addEventListener('change', async () => { await api('/api/settings', { outputDir: $('outdir').value }).catch(() => {}); loadFiles(); });
+$('outdir').addEventListener('change', async () => {
+  try { const st = await api('/api/settings', { outputDir: $('outdir').value }); $('outdir').value = st.outputDir; clearMsg(); }
+  catch (e) { say(e.message); }
+  loadFiles();
+});
 
 $('updNow').onclick = async () => {
   if (!confirm('Update ATEM Logger now? The logger restarts, which takes about a minute.')) return;

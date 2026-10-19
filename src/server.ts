@@ -108,11 +108,25 @@ app.get('/api/status', (_req, res) => {
 
 app.get('/api/settings', (_req, res) => res.json(settings));
 
+/** Cleans up a folder path typed or pasted into the page, and insists on a full path. */
+export function cleanFolderPath(input: string): string {
+  let p = input.trim();
+  // Surrounding quotes, e.g. from Finder "Copy as Pathname" pasted into a shell, or Windows "Copy as path".
+  while (p.length >= 2 && /^['"].*['"]$/.test(p) && p[0] === p[p.length - 1]) p = p.slice(1, -1).trim();
+  if (p.startsWith('file://')) p = decodeURIComponent(p.slice(7));
+  if (process.platform !== 'win32') p = p.replace(/\\(.)/g, '$1');           // Terminal drag-and-drop escapes ("Project\ 32TB")
+  if (p === '~' || p.startsWith('~/')) p = path.join(os.homedir(), p.slice(1));
+  if (!p) throw new Error('Enter a folder to save EDLs in.');
+  if (!path.isAbsolute(p)) throw new Error(`"${input.trim()}" isn't a full folder path. Use one like ${process.platform === 'win32' ? 'D:\\Projects\\Episode_23\\EDL' : '/Volumes/Drive/Episode_23/EDL'}.`);
+  return path.normalize(p).replace(/(.)[\\/]+$/, '$1');
+}
+
 app.post('/api/settings', wrap(async (req, res) => {
   const b = req.body ?? {};
   const ipChanged = typeof b.atemIp === 'string' && b.atemIp.trim() && b.atemIp.trim() !== settings.atemIp;
   if (ipChanged && logger.active) throw new Error('Stop logging before changing the switcher IP.');
-  for (const k of ['atemIp', 'outputDir', 'tcSource', 'recordStartTc', 'lastTitle'] as const) {
+  if (typeof b.outputDir === 'string') settings.outputDir = cleanFolderPath(b.outputDir);
+  for (const k of ['atemIp', 'tcSource', 'recordStartTc', 'lastTitle'] as const) {
     if (typeof b[k] === 'string') (settings as any)[k] = b[k].trim();
   }
   if (typeof b.me === 'number') settings.me = b.me;
@@ -141,9 +155,13 @@ app.post('/api/start', wrap(async (req, res) => {
   const b = req.body ?? {};
   const title = String(b.title ?? settings.lastTitle ?? '').trim();
   if (!title) throw new Error('Enter a show / episode title.');
-  if (typeof b.outputDir === 'string' && b.outputDir.trim()) settings.outputDir = b.outputDir.trim();
+  if (typeof b.outputDir === 'string' && b.outputDir.trim()) settings.outputDir = cleanFolderPath(b.outputDir);
+  settings.outputDir = cleanFolderPath(settings.outputDir);   // also repairs a bad path saved by an older version
   settings.lastTitle = title;
   saveSettings();
+  // A drive that isn't mounted would otherwise fail with a confusing permission error.
+  const vol = process.platform === 'darwin' && settings.outputDir.match(/^\/Volumes\/[^/]+/)?.[0];
+  if (vol && !existsSync(vol)) throw new Error(`The drive "${vol.slice(9)}" isn't connected. Plug it in (or pick another folder) and try again.`);
   const file = await logger.start(atem as unknown as AtemLike, {
     title, me: settings.me, outputDir: settings.outputDir, tcSource: settings.tcSource,
     recordStartTc: settings.recordStartTc, reelNames: settings.reelNames,
