@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ATEM Logger — Quick Start Guide</title>
+<style>
+  @page { size: Letter; margin: 0.55in 0.6in 0.6in; }
+  :root { --ink:#16181c; --dim:#5b616b; --line:#dde0e5; --accent:#e5484d; --blue:#2f6fde; --green:#1f9d63; --tint:#f5f6f8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Inter, "DejaVu Sans", sans-serif; color:var(--ink); font-size:9.2pt; line-height:1.4; }
+  h1 { font-family:"Inter Display", Inter, sans-serif; font-size:24pt; letter-spacing:-.3px; margin:0; line-height:1.1; }
+  .sub { color:var(--dim); font-size:11pt; margin:4px 0 0; }
+  .masthead { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2.5px solid var(--ink); padding-bottom:10px; margin-bottom:14px; }
+  .tag { font-size:8pt; letter-spacing:1.2px; text-transform:uppercase; color:var(--accent); font-weight:700; margin-bottom:6px; }
+  .rec { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent); margin-right:6px; vertical-align:1px; }
+  .meta { text-align:right; color:var(--dim); font-size:8.5pt; white-space:nowrap; padding-left:16px; }
+  h2 { font-size:12pt; margin:13px 0 5px; display:flex; align-items:center; gap:8px; }
+  h2 .n { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:var(--ink); color:#fff; font-size:9pt; font-weight:700; flex:none; }
+  h3 { font-size:9.8pt; margin:10px 0 3px; }
+  p { margin:0 0 6px; }
+  ul, ol { margin:0 0 6px; padding-left:17px; } li { margin:2px 0; }
+  code, .mono { font-family:"DejaVu Sans Mono", monospace; font-size:8.6pt; background:var(--tint); border:1px solid var(--line); border-radius:3px; padding:0 3px; }
+  b { font-weight:600; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+  .cols3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  .card { border:1px solid var(--line); border-radius:7px; padding:9px 11px; background:#fff; }
+  .card h3 { margin-top:0; }
+  .studio { background:var(--tint); border:1px solid var(--line); border-left:4px solid var(--blue); border-radius:6px; padding:9px 12px; margin:10px 0; }
+  .studio table { border-collapse:collapse; width:100%; } .studio td { padding:2px 8px 2px 0; vertical-align:top; } .studio td:first-child { color:var(--dim); width:34%; }
+  .shot { margin:10px 0 2px; border-radius:7px; overflow:hidden; border:1px solid #2a2f37; }
+  .shot img { display:block; width:100%; }
+  .cap { color:var(--dim); font-size:8.3pt; margin-bottom:4px; }
+  .warn { border-left:4px solid #e0a020; background:#fdf7e8; border-radius:6px; padding:8px 11px; margin:8px 0; }
+  .btn { display:inline-block; font-weight:700; font-size:8.4pt; padding:1px 7px; border-radius:4px; color:#fff; }
+  .b-green { background:var(--green); } .b-red { background:var(--accent); } .b-blue { background:var(--blue); }
+  table.trouble { width:100%; border-collapse:collapse; font-size:8.7pt; }
+  table.trouble th { text-align:left; font-size:7.8pt; text-transform:uppercase; letter-spacing:.8px; color:var(--dim); border-bottom:1.5px solid var(--ink); padding:4px 6px 4px 0; }
+  table.trouble td { border-bottom:1px solid var(--line); padding:3.5px 8px 3.5px 0; vertical-align:top; }
+  table.trouble td:first-child { font-weight:600; width:30%; }
+  .check li { list-style:none; position:relative; } .check { padding-left:16px; }
+  .check li::before { content:""; position:absolute; left:-15px; top:3px; width:9px; height:9px; border:1.4px solid var(--ink); border-radius:2px; }
+  .page2 { break-before:page; }
+  .page3 { break-before:page; }
+  .page3 ~ table.trouble { font-size:8.3pt; }
+  .page3 ~ table.trouble td { padding:2px 8px 2px 0; line-height:1.32; }
+  .page3 ~ h2 { margin-top:9px; }
+  .page3 ~ p, .page3 ~ .cols p { margin-bottom:4px; }
+  .traymenu { width:100%; background:#f3f3f5; border:1px solid #c9ccd2; border-radius:9px; box-shadow:0 6px 18px rgba(0,0,0,.12); padding:3px 0; font-size:8.2pt; line-height:1.3; }
+  .traymenu div { padding:1.5px 12px; } .traymenu .dis { color:#8a8f98; } .traymenu hr { border:0; border-top:1px solid #d6d8dd; margin:2px 0; }
+  .traymenu .hl { background:var(--blue); color:#fff; border-radius:4px; margin:0 5px; padding:3px 9px; }
+  .menubar { display:flex; justify-content:flex-end; gap:12px; align-items:center; background:#e9e9ec; border:1px solid #c9ccd2; border-radius:7px 7px 0 0; padding:4px 10px; font-size:8.5pt; color:#333; margin-bottom:4px; }
+  .dot { display:inline-block; width:11px; height:11px; border-radius:50%; border:2px solid; vertical-align:-1px; position:relative; }
+  .dot::after { content:""; position:absolute; inset:2px; border-radius:50%; background:currentColor; }
+  .legend { display:grid; grid-template-columns:auto 1fr; gap:3px 8px; align-items:center; margin:6px 0; }
+  table.cli { width:100%; border-collapse:collapse; font-size:8.8pt; }
+  table.cli td { border-bottom:1px solid var(--line); padding:2px 8px 2px 0; vertical-align:top; } table.cli td:first-child { white-space:nowrap; width:1%; }
+
+  .page2 ~ h2 { margin-top:10px; }
+  .page2 ~ ol li, .page2 ~ .cols li { margin:1px 0; }
+  .page2 ~ .warn { margin:6px 0; padding:6px 11px; }
+  .setup { display:grid; grid-template-columns:0.95fr 1.05fr; gap:18px; align-items:start; }
+  .setup .shot { margin-top:2px; }
+  .foot { margin-top:5px; border-top:1px solid var(--line); padding-top:6px; color:var(--dim); font-size:8pt; display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div>
+    <div class="tag"><span class="rec"></span>Quick Start</div>
+    <h1>ATEM Logger</h1>
+    <p class="sub">Log every switcher cut to an EDL, then rebuild the live edit in DaVinci Resolve.</p>
+  </div>
+  <div class="meta">Version 1.1<br>github.com/La8Grt8/atem-logger</div>
+</div>
+
+<p>ATEM Logger runs as a background service on a computer on the same network as your ATEM switcher. It records every
+program change (from the panel, ATEM Software Control, macros or anything else) with timecode, and
+saves it as a <b>CMX 3600 EDL</b>. Record each camera separately (HyperDecks or camera cards), then
+conform the EDL in Resolve against those files to get the switched show back. You control it from a web page.</p>
+
+<div class="studio">
+  <b>Links Live Media studio setup</b>
+  <table>
+    <tr><td>Control page</td><td><span class="mono">http://192.168.11.146:9920</span> from any device on the studio network<br><span class="mono">http://localhost:9920</span> on the Mac Mini itself</td></tr>
+    <tr><td>Runs on</td><td>Studio Mac Mini, as a <b>background service</b> that starts at boot. Control it from the <b>◎ menu-bar icon</b></td></tr>
+    <tr><td>Switcher</td><td>ATEM 2 M/E Constellation 4K · <span class="mono">192.168.11.240</span></td></tr>
+    <tr><td>Reels</td><td>1 Host → <b>CAM1</b> &nbsp;·&nbsp; 2 Wide → <b>CAM2</b> &nbsp;·&nbsp; 3 Guest → <b>CAM3</b></td></tr>
+  </table>
+</div>
+
+<h2><span class="n">1</span>Install (one time per computer)</h2>
+<div class="cols3">
+  <div class="card"><h3>Mac</h3>
+    Download the ZIP from GitHub and unzip it somewhere permanent. Double-click <b>Install on Mac.command</b>
+    and enter your Mac password. If macOS blocks it, right-click → <b>Open</b>.</div>
+  <div class="card"><h3>Windows</h3>
+    Download the ZIP and unzip it somewhere permanent. Double-click <b>Install on Windows.bat</b> and click <b>Yes</b>
+    for administrator rights. If SmartScreen appears, click <b>More info → Run anyway</b>.</div>
+  <div class="card"><h3>Docker / ZimaBoard</h3>
+    Use image <span class="mono">ghcr.io/la8grt8/atem-logger</span> with <span class="mono">docker-compose.yml</span>
+    from the repo. Map <span class="mono">/edl</span> to where EDLs should land.</div>
+</div>
+<p class="cap" style="margin-top:6px">The installers set up Node.js if it's missing, install the background service, the menu-bar/tray icon and the <span class="mono">atem-logger</span> command, then open the control page. Don't move the folder afterwards, because the service runs from it.</p>
+
+<h2><span class="n">2</span>First-time setup</h2>
+<div class="setup">
+<ol>
+  <li><b>Switcher:</b> open <i>Switcher &amp; timecode settings</i> (bottom right), enter the ATEM's IP, and click <b>Save settings</b>. The pill at the top turns <b style="color:var(--green)">green</b> with the switcher model when connected.</li>
+  <li><b>Reel names:</b> give each camera input a short reel (max 8 characters), e.g. <span class="mono">CAM1</span>, then click <b>Save reel names</b>. Blank uses the ATEM's short name. <b>No two cameras may share a reel.</b></li>
+  <li><b>Timecode:</b> leave <i>Switcher timecode</i> selected if the cameras, HyperDecks and ATEM share the same time-of-day timecode (e.g. Tentacle Sync). Check that the status line's <b>DF / NDF</b> matches your camera timecode.</li>
+</ol>
+<div>
+  <div class="shot"><img src="ui.png" alt="ATEM Logger control page during a show"></div>
+  <p class="cap">The control page during a show: live timecode, program/preview, recent switches, and the Stop and Add Marker buttons.</p>
+</div>
+</div>
+
+<!-- ============================ PAGE 2 ============================ -->
+<div class="page2"></div>
+
+<h2><span class="n">3</span>Running a show</h2>
+<div class="cols">
+  <div>
+    <h3>Before you roll</h3>
+    <ul class="check">
+      <li>Header pill is green and shows the switcher.</li>
+      <li>Program / Preview match what's on the multiview.</li>
+      <li>Type the <b>title</b> (e.g. <span class="mono">Episode_23</span>) and the <b>save folder</b> for this episode.</li>
+      <li>Project drive is mounted.</li>
+      <li>Cameras / HyperDecks are recording with synced timecode.</li>
+    </ul>
+    <h3>Roll</h3>
+    <p>Click <span class="btn b-green">Start EDL</span>. The page shows <b style="color:var(--accent)">● LOGGING</b>, running
+    timecode and the switch count. Cut the show as normal from any panel or software.</p>
+  </div>
+  <div>
+    <h3>Markers</h3>
+    <p>Mark a moment for the edit: a great soundbite, a retake, a clip for social.</p>
+    <ul>
+      <li>Click <span class="btn b-blue">◆ Add Marker</span>, or</li>
+      <li>press <span class="mono">M</span> anywhere on the page, or</li>
+      <li>type a note in the box under the button and press <b>Enter</b>.</li>
+    </ul>
+    <h3>Wrap</h3>
+    <p>Click <span class="btn b-red">Stop EDL</span> and confirm. Your files are in the save folder:</p>
+    <ul>
+      <li><span class="mono">Episode_23_&lt;date&gt;_&lt;time&gt;.edl</span>, the cuts</li>
+      <li><span class="mono">…_markers.edl</span>, only if you added markers</li>
+    </ul>
+    <p>They're also listed under <b>EDL files</b> for download.</p>
+  </div>
+</div>
+<div class="warn"><b>The EDL is saved after every cut.</b> If the computer or app restarts mid-show, nothing already
+logged is lost. The page points you to the partial file, and you can start a new EDL to keep going.</div>
+
+<h2><span class="n">4</span>Conform in DaVinci Resolve</h2>
+<ol>
+  <li><b>Project Settings → Master Settings:</b> set the timeline frame rate to the show's rate (e.g. 29.97) <i>before</i> adding media.</li>
+  <li><b>Project Settings → General Options → Conform Options:</b> tick <b>Assist using reel names from the: Source clip filename</b>. You need this in every new project, so add it to your project template.</li>
+  <li><b>Rename each camera file to its reel</b> (<span class="mono">CAM1.mov</span>, <span class="mono">CAM2.mov</span>, <span class="mono">CAM3.mov</span>) and import them into the Media Pool.</li>
+  <li><b>File → Import → Timeline</b>, pick the <span class="mono">.edl</span>, and <b>untick</b> <i>Automatically import source clips into media pool</i>.</li>
+  <li><b>Markers:</b> right-click the new timeline in the Media Pool → <b>Timelines → Import → Timeline Markers from EDL</b>, and pick the <span class="mono">_markers.edl</span>.</li>
+  <li><b>Check sync</b> at a clap or hard consonant. Lay the separately recorded audio underneath and line it up.</li>
+</ol>
+
+<h2><span class="n">5</span>Updates</h2>
+<p>The app checks GitHub for a new version when it starts and every few hours. When there is one, the control page shows a
+banner (<b>Update now · What's new · Later</b>) and the icon asks once. Updating takes about a minute and restarts the service.
+It's <b>blocked while an EDL is being logged</b>, so it can never interrupt a show. To check yourself, go to
+<i>Switcher &amp; timecode settings → Check for updates</i>. On Docker, run <span class="mono">docker compose pull &amp;&amp; docker compose up -d</span> instead.</p>
+
+<div class="page3"></div>
+<h2><span class="n">6</span>Service controls</h2>
+<p>ATEM Logger runs as a <b>background service</b>. It starts when the computer boots, even if nobody logs in,
+and restarts itself within seconds if it ever crashes. You can stop it any time from the icon or the command line.
+It stays stopped until you start it again or the computer reboots.</p>
+<div class="cols">
+  <div>
+    <h3>Menu-bar / tray icon</h3>
+    <p>On a Mac it's next to the clock. On Windows it's in the system tray (you may need the <b>^</b> arrow). The colour shows the state:</p>
+    <div class="legend">
+      <span class="dot" style="color:#9097a0"></span><span><b>Grey</b>: service stopped</span>
+      <span class="dot" style="color:#e0a020"></span><span><b>Orange</b>: running, switcher not connected</span>
+      <span class="dot" style="color:var(--green)"></span><span><b>Green</b>: running and connected, ready</span>
+      <span class="dot" style="color:var(--accent)"></span><span><b>Red</b>: logging (Mac also shows the switch count)</span>
+    </div>
+    <p>Click it to open the control page, add a marker, start/stop/restart the service, or install an update.
+    Stopping or restarting while logging asks first and finalizes the EDL. <b>Quit</b> only removes the icon, and the
+    service keeps running.</p>
+  </div>
+  <div>
+    <div class="menubar"><span class="dot" style="color:var(--accent)"></span><b>87</b><span>Mon 11:42</span></div>
+    <div class="traymenu">
+      <div class="dis">ATEM Logger — Running</div>
+      <div class="dis">Switcher: ATEM 2 M/E Constellation 4K</div>
+      <div class="dis">Logging: Episode_23 · 87 switches · 2 markers</div><hr>
+      <div>Open Control Page</div>
+      <div class="hl">Add Marker</div><hr>
+      <div class="dis">Start Service</div>
+      <div>Stop Service</div>
+      <div>Restart Service</div><hr>
+      <div class="dis">Version 1.1.0</div>
+      <div>Quit Menu Bar Icon</div>
+    </div>
+    <p class="cap" style="margin-top:3px">The Mac menu during a show (illustration). The Windows menu is the same.</p>
+  </div>
+</div>
+<h3>Command line</h3>
+<p>Use Terminal on a Mac, or any new terminal window on Windows.</p>
+<table class="cli">
+  <tr><td><span class="mono">atem-logger status</span></td><td>Running or stopped, switcher connection, logging state and EDL file</td></tr>
+  <tr><td><span class="mono">atem-logger stop</span></td><td>Stop the service. Any EDL in progress is finalized first</td></tr>
+  <tr><td><span class="mono">atem-logger start</span> · <span class="mono">restart</span></td><td>Start or restart it. No password needed for admins</td></tr>
+  <tr><td><span class="mono">atem-logger open</span> · <span class="mono">logs</span></td><td>Open the control page · follow the log</td></tr>
+  <tr><td><span class="mono">atem-logger disable</span> · <span class="mono">enable</span></td><td>Don't start / do start at boot (asks for an admin password)</td></tr>
+</table>
+
+<h2><span class="n">7</span>Troubleshooting</h2>
+<table class="trouble">
+  <tr><th>What you see</th><th>What to do</th></tr>
+  <tr><td>Red pill: "Not connected"</td><td>Check the switcher is on and the IP is right. The computer must reach the ATEM on <b>UDP 9910</b>, which is the same as ATEM Software Control. The app reconnects on its own.</td></tr>
+  <tr><td>"Switcher connection lost" during a show</td><td>Logging keeps running and resumes when the switcher reconnects. Cuts made while disconnected aren't captured, so note the time.</td></tr>
+  <tr><td>"Could not write the EDL file"</td><td>The save folder isn't reachable, usually because the drive is unmounted. Remount it. The next cut rewrites the whole file.</td></tr>
+  <tr><td>Everything conforms to one camera</td><td>The Conform Option in step 4.2 isn't ticked. Tick it and import the EDL again.</td></tr>
+  <tr><td>Cuts land on the wrong camera</td><td>Reel names don't match the file names, or two inputs share a reel. Fix them under <b>Reel names</b>, which applies from the next EDL.</td></tr>
+  <tr><td>Media offline / shots a frame or two off</td><td>The camera timecode doesn't match the EDL. Check the cameras and switcher share time-of-day timecode, and that DF/NDF matches. For a constant offset, adjust the clip's Start TC in Resolve.</td></tr>
+  <tr><td>Page won't open / icon is grey</td><td>The service is stopped. Click the icon → <b>Start Service</b>, or run <span class="mono">atem-logger start</span>. After a reboot with FileVault on, someone has to unlock the Mac first. Logs: <span class="mono">~/.atem-logger/logger.log</span> (Mac), <span class="mono">%USERPROFILE%\.atem-logger\atem-logger-service.out.log</span> (Windows).</td></tr>
+  <tr><td>Can't save to a network drive (Windows)</td><td>The service can't see mapped drive letters. Use the full share path, e.g. <span class="mono">\\nas\projects\EDL</span>.</td></tr>
+  <tr><td>Update failed</td><td>The banner shows why, and the old version keeps running. Click <b>Try again</b>, or re-run the installer.</td></tr>
+</table>
+
+<div class="foot"><span>ATEM Logger · MIT License · Links Live Media</span><span>Full docs &amp; uninstall: github.com/La8Grt8/atem-logger</span></div>
+</body>
+</html>
