@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Self-update: checks GitHub for a newer release and, when asked, installs it
+// Self-update: checks GitHub for a newer version (vX.Y.Z tag) and, when asked, installs it
 // in place (git checkout of the release tag, or the release tarball for ZIP
 // installs), rebuilds, then exits so the service manager restarts the new
 // version. Never runs while an EDL is being logged.
@@ -59,16 +59,20 @@ export class Updater {
     if (this.info.state === 'updating' || this.info.state === 'restarting') return this.info;
     this.info.state = 'checking';
     try {
-      const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-        headers: { 'User-Agent': 'atem-logger', Accept: 'application/vnd.github+json' },
-        signal: AbortSignal.timeout(10_000),
-      });
+      // Versions are the repo's vX.Y.Z tags; a GitHub Release for the tag (optional) supplies the notes.
+      const headers = { 'User-Agent': 'atem-logger', Accept: 'application/vnd.github+json' };
+      const r = await fetch(`https://api.github.com/repos/${REPO}/tags?per_page=100`, { headers, signal: AbortSignal.timeout(10_000) });
       if (!r.ok) throw new Error(`GitHub answered ${r.status}`);
-      const j: any = await r.json();
-      const latest = String(j.tag_name ?? '').replace(/^v/, '');
+      const tags: string[] = ((await r.json()) as any[]).map(t => String(t.name)).filter(n => /^v?\d+\.\d+\.\d+$/.test(n));
+      if (!tags.length) throw new Error('no version tags found');
+      const latest = tags.map(t => t.replace(/^v/, '')).reduce((a, b) => (newer(b, a) ? b : a));
+      let releaseUrl = `https://github.com/${REPO}/releases/tag/v${latest}`, notes: string | null = null, publishedAt: string | null = null;
+      try {
+        const rel = await fetch(`https://api.github.com/repos/${REPO}/releases/tags/v${latest}`, { headers, signal: AbortSignal.timeout(10_000) });
+        if (rel.ok) { const j: any = await rel.json(); releaseUrl = j.html_url ?? releaseUrl; notes = j.body ?? null; publishedAt = j.published_at ?? null; }
+      } catch { /* notes are optional */ }
       Object.assign(this.info, {
-        latest, available: !!latest && newer(latest, this.info.current),
-        releaseUrl: j.html_url ?? null, notes: j.body ?? null, publishedAt: j.published_at ?? null,
+        latest, available: newer(latest, this.info.current), releaseUrl, notes, publishedAt,
         checkedAt: new Date().toISOString(), state: 'idle', message: null,
       });
       if (this.info.available) this.log(`Update available: ${this.info.current} → ${latest}`);

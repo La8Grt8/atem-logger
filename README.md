@@ -226,7 +226,8 @@ switcher via the Model Context Protocol.
 1. Bump `version` in `package.json` **and** `CFBundleShortVersionString` in `tray/mac/Info.plist`.
 2. On a Mac with Xcode Command Line Tools, run `bash tray/mac/build.sh` and commit the rebuilt
    `tray/mac/ATEM Logger.app`.
-3. Push, then publish a GitHub release tagged `vX.Y.Z`. Installed copies see the release within 6 hours, and the
+3. Push, then push a tag `vX.Y.Z` (`git tag v1.2.0 && git push origin v1.2.0`). Installed copies see it within
+   6 hours. Optionally add a GitHub Release for the tag; its notes are linked from the update prompt. The
    Docker image is built automatically.
 
 ## License
