@@ -1,0 +1,81 @@
+#!/bin/bash
+# atem-logger — control the ATEM Logger background service on macOS.
+LABEL="com.atem-logger"
+PLIST="/Library/LaunchDaemons/$LABEL.plist"
+PB=/usr/libexec/PlistBuddy
+
+if [ ! -f "$PLIST" ]; then
+  echo "ATEM Logger service is not installed. Run 'Install on Mac.command' first."; exit 1
+fi
+PORT="$($PB -c 'Print :EnvironmentVariables:PORT' "$PLIST" 2>/dev/null || echo 9920)"
+SVC_HOME="$($PB -c 'Print :EnvironmentVariables:HOME' "$PLIST" 2>/dev/null || echo "$HOME")"
+LOG="$SVC_HOME/.atem-logger/logger.log"
+URL="http://localhost:$PORT"
+
+pid() { launchctl print "system/$LABEL" 2>/dev/null | awk '/^\tpid = /{print $3; exit}'; }
+api() { curl -s -m 2 "$URL/api/status"; }
+priv() { # password-free for admins (sudoers rule installed with the service); falls back to a password prompt
+  sudo -n /bin/launchctl "$@" 2>/dev/null || sudo /bin/launchctl "$@"
+}
+wait_for() { # wait_for up|down
+  for _ in $(seq 1 20); do
+    if [ "$1" = up ] && api >/dev/null; then return 0; fi
+    if [ "$1" = down ] && [ -z "$(pid)" ]; then return 0; fi
+    sleep 0.5
+  done; return 1
+}
+
+status() {
+  local p; p="$(pid)"
+  if [ -z "$p" ]; then echo "ATEM Logger: STOPPED"; return 3; fi
+  local s; s="$(api)"
+  if [ -z "$s" ]; then echo "ATEM Logger: STARTING (pid $p)"; return 0; fi
+  /usr/bin/python3 - "$s" "$URL" "$p" <<'EOF' 2>/dev/null || echo "ATEM Logger: RUNNING (pid $3) · $URL"
+import json, sys
+s = json.loads(sys.argv[1]); a, l = s["atem"], s["logging"]
+print(f"ATEM Logger: RUNNING (pid {sys.argv[3]}) · {sys.argv[2]}")
+print(f"  Switcher:  {'connected · ' + (a.get('model') or '') if a['connected'] else 'NOT connected'} ({a['ip']})")
+print(f"  Logging:   {('YES · ' + l['title'] + ' · ' + str(l['events']) + ' switches · ' + str(l['markers']) + ' markers') if l['active'] else 'no'}")
+if l['active']: print(f"  EDL file:  {l['edlFile']}")
+EOF
+}
+
+logging_active() { api | grep -q '"logging":{"active":true'; }
+
+case "$1" in
+  start)
+    if [ -n "$(pid)" ]; then echo "Already running · $URL"; exit 0; fi
+    priv kickstart "system/$LABEL" && wait_for up && echo "Started · $URL" || { echo "Start requested — check '$0 status'"; exit 1; } ;;
+  stop)
+    if [ -z "$(pid)" ]; then echo "Already stopped."; exit 0; fi
+    if logging_active; then echo "An EDL is being logged — it will be finalized before stopping."; fi
+    curl -sf -m 3 -X POST "$URL/api/service/stop" >/dev/null || priv kill SIGTERM "system/$LABEL"
+    wait_for down && echo "Stopped. It will start again at the next boot (or run 'atem-logger start')." || echo "Stop requested — check 'atem-logger status'" ;;
+  restart)
+    if logging_active; then echo "An EDL is being logged — it will be finalized before restarting."; fi
+    if [ -n "$(pid)" ] && curl -sf -m 3 -X POST "$URL/api/service/restart" >/dev/null; then sleep 2; else priv kickstart -k "system/$LABEL"; fi
+    wait_for up && echo "Restarted · $URL" ;;
+  status|"")
+    status ;;
+  open)
+    open "$URL" ;;
+  logs)
+    tail -n 50 -f "$LOG" ;;
+  enable)
+    sudo /bin/launchctl enable "system/$LABEL" && echo "Will start automatically at boot." ;;
+  disable)
+    sudo /bin/launchctl disable "system/$LABEL" && echo "Will NOT start at boot (use '$0 start' to run it now)." ;;
+  *)
+    cat <<EOF
+Usage: atem-logger <command>
+  status    Show whether the service is running, switcher connection and logging state
+  start     Start the service
+  stop      Stop the service (finalizes any EDL in progress)
+  restart   Restart the service
+  open      Open the control page ($URL)
+  logs      Follow the log file
+  enable    Start automatically at boot (default)        [asks for your password]
+  disable   Don't start at boot                          [asks for your password]
+EOF
+    ;;
+esac

@@ -5,9 +5,12 @@ DaVinci Resolve. It's built for switchers without ISO recording (e.g. the Conste
 record each camera separately (HyperDecks, camera cards), log the cuts with ATEM Logger, then
 conform the EDL against the camera files in Resolve to rebuild the live edit.
 
-It runs quietly in the background on a Mac or Windows PC on the same network as the switcher,
-and you control it from a web page at **http://localhost:9920**. You can also open it from any
-phone, tablet or computer on the network.
+It runs as a **background service** on a Mac or Windows PC on the same network as the switcher.
+It starts when the computer boots, with nobody logged in, and restarts itself if it ever crashes.
+You run shows from a web page at **http://localhost:9920**, which you can also open from any phone,
+tablet or computer on the network. A **menu-bar / system-tray icon** and an **`atem-logger`
+command** start, stop and restart the service, and the app **checks GitHub for updates** and
+offers to install them.
 
 - Start/stop logging with a show title and save folder
 - Live timecode, program/preview, and the last 12 switches
@@ -16,6 +19,8 @@ phone, tablet or computer on the network.
 - Download links for finished EDLs
 - Captures cuts from any source: the hardware panel, ATEM Software Control, macros, Companion, etc.
 - The EDL is saved after every cut, so a crash or power loss never loses the show
+- Runs as a system service, controlled from the tray icon or command line
+- Built-in update check: one click to install a new release
 
 > ⚠️ Early release. The EDL engine has been used on a real show and conformed in DaVinci
 > Resolve, but this standalone app is new. Run a short test before relying on it for a live job.
@@ -32,24 +37,44 @@ permanent (e.g. your Documents folder), or:
 git clone https://github.com/La8Grt8/atem-logger.git
 ```
 
-Don't delete or move the folder after installing, because the app runs from it.
+Don't delete or move the folder after installing, because the service runs from it. Installing
+needs an **administrator account**; you'll be asked for your password once.
+
+A quick start guide for operators is in [`docs/ATEM-Logger-Quick-Start.pdf`](docs/ATEM-Logger-Quick-Start.pdf).
 
 ### Mac
-Double-click **`Install on Mac.command`**.
+Double-click **`Install on Mac.command`** and enter your Mac password when asked.
 If macOS says it can't be opened because it's from an unidentified developer, right-click the
-file → **Open** → **Open**. If macOS asks to let "node" find devices on your local network,
-click **Allow**, since the app needs that to reach the switcher.
+file → **Open** → **Open**.
+
+This installs:
+- the **service** (`/Library/LaunchDaemons/com.atem-logger.plist`), which runs as your user
+  so it can use your drives and settings;
+- the **menu-bar icon** (the ◎ next to the clock), which starts at login;
+- the **`atem-logger`** command.
 
 Terminal alternative: `bash scripts/install-mac.sh`
 
-### Windows
-Double-click **`Install on Windows.bat`**.
-If Windows SmartScreen appears, click **More info → Run anyway**. If Windows Firewall asks about
-Node.js, tick **Private networks** and click **Allow**. To skip that prompt, run the installer as
-administrator, which adds the firewall rule for you.
+> **FileVault:** if FileVault is on, a Mac that restarts (power cut, update) waits at the disk
+> unlock screen until someone enters a password. After that, ATEM Logger starts on its own,
+> even if nobody logs in.
 
-The installer opens the control page when it's done. From then on, ATEM Logger starts on its own
-when you log in.
+### Windows
+Double-click **`Install on Windows.bat`** and click **Yes** when Windows asks for administrator
+rights. If SmartScreen appears, click **More info → Run anyway**.
+
+This installs:
+- the **"ATEM Logger" Windows Service**, which starts automatically at boot (it uses the
+  [WinSW](https://github.com/winsw/winsw) service wrapper, downloaded and checksum-verified
+  during install);
+- the **tray icon**, which starts at sign-in for every user;
+- the **`atem-logger`** command;
+- a firewall rule for the control page.
+
+> The service runs as the Windows *Local System* account, so it can't see mapped network drive
+> letters. To save EDLs on a NAS, use the share's full path, e.g. `\\nas\projects\EDL`.
+
+The installer opens the control page when it's done.
 
 ### Docker (ZimaBoard/CasaOS, Synology, Unraid, Linux, NAS)
 
@@ -90,6 +115,46 @@ Then open **http://&lt;docker-host-ip&gt;:9920**.
 To build the image yourself instead, run `docker build -t atem-logger .` in this folder, or
 use `build: .` in the compose file.
 
+## Controlling the service
+
+**Menu-bar / tray icon.** Its color shows the state at a glance: grey = service stopped,
+orange = running but no switcher, green = ready, red = logging. Click it for:
+
+- switcher and logging status
+- **Open Control Page**, plus **Add Marker** while logging
+- **Start / Stop / Restart Service**, which asks first if an EDL is being logged
+- **Update to x.y.z…** when an update is available
+- **Quit**, which removes the icon only; the service keeps running
+
+**Command line** (Terminal on Mac, any new terminal window on Windows):
+
+| Command | What it does |
+|---|---|
+| `atem-logger status` | Running/stopped, switcher connection, logging state |
+| `atem-logger start` | Start the service |
+| `atem-logger stop` | Stop it. Any EDL in progress is finalized first. It stays stopped until you start it or the computer reboots |
+| `atem-logger restart` | Restart it |
+| `atem-logger open` | Open the control page |
+| `atem-logger logs` | Follow the log |
+| `atem-logger disable` / `enable` | Don't start / do start at boot (asks for an admin password) |
+
+On a Mac, admins can start, stop and restart without a password. On Windows, any signed-in user
+can. If the service ever crashes, it restarts itself within a few seconds.
+
+## Updates
+
+The app checks GitHub for a new release when it starts and every 6 hours. When one is
+available:
+
+- the control page shows a banner: **Update now / What's new / Later**;
+- the menu-bar / tray icon asks once: **Update Now / Later**.
+
+Updating downloads the release, rebuilds, and restarts the service, which takes about a minute.
+It's **blocked while an EDL is being logged**, so an update can never interrupt a show. You
+can also check by hand under **Switcher & timecode settings → Check for updates**.
+
+Docker installs update by pulling the new image instead (see below).
+
 ## First run
 
 1. Open **http://localhost:9920**.
@@ -128,9 +193,11 @@ Settings are stored in `~/.atem-logger/settings.json` (Mac) or `%USERPROFILE%\.a
 
 ## Update / uninstall
 
-- **Update:** replace the folder with the new download (or `git pull`), then run the installer again.
-- **Uninstall:** double-click `Uninstall on Mac.command` or `Uninstall on Windows.bat`, then delete the folder.
-- **Log file:** `~/.atem-logger/logger.log` (Mac), `%USERPROFILE%\.atem-logger\logger.log` (Windows).
+- **Update:** use the update prompt (see [Updates](#updates)), or replace the folder / `git pull`
+  and run the installer again.
+- **Uninstall:** double-click `Uninstall on Mac.command` or `Uninstall on Windows.bat`, then
+  delete the folder. This removes the service, tray icon and command, and keeps your settings.
+- **Log file:** `~/.atem-logger/logger.log` (Mac), `%USERPROFILE%\.atem-logger\atem-logger-service.out.log` (Windows).
 
 ## Network
 
@@ -153,6 +220,14 @@ npm test         # simulated-switcher test of the EDL engine
 The EDL engine (`src/edl-logger.ts`) is shared with
 [claude-atem-mcp](https://github.com/La8Grt8/claude-atem-mcp), which adds AI control of the
 switcher via the Model Context Protocol.
+
+## Releasing a new version
+
+1. Bump `version` in `package.json` **and** `CFBundleShortVersionString` in `tray/mac/Info.plist`.
+2. On a Mac with Xcode Command Line Tools, run `bash tray/mac/build.sh` and commit the rebuilt
+   `tray/mac/ATEM Logger.app`.
+3. Push, then publish a GitHub release tagged `vX.Y.Z`. Installed copies see the release within 6 hours, and the
+   Docker image is built automatically.
 
 ## License
 

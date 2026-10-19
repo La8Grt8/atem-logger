@@ -4,3 +4,6 @@ data/
 edl/
 *.log
 .DS_Store
+scripts/windows/service/*.exe
+scripts/windows/service/*.xml
+scripts/windows/service/*.log

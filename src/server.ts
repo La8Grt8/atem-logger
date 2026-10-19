@@ -11,6 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { EdlLogger, AtemLike } from './edl-logger.js';
+import { Updater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 9920);
@@ -31,7 +32,7 @@ interface Settings {
 }
 const defaults: Settings = {
   atemIp: process.env.ATEM_IP ?? '192.168.11.240',
-  outputDir: process.env.OUTPUT_DIR ?? path.join(os.homedir(), process.platform === 'win32' ? 'Videos' : 'Movies', 'ATEM EDLs'),
+  outputDir: process.env.OUTPUT_DIR ?? process.env.ATEM_LOGGER_DEFAULT_OUTPUT ?? path.join(os.homedir(), process.platform === 'win32' ? 'Videos' : 'Movies', 'ATEM EDLs'),
   me: 0,
   tcSource: 'atem',
   recordStartTc: '01:00:00:00',
@@ -64,6 +65,7 @@ async function connectAtem(ip: string) {
 
 // ------------------------------- logger -------------------------------------
 const logger = new EdlLogger();
+const updater = new Updater(path.join(__dirname, '..'), log);
 let sessionStartedAt: Date | null = null;
 
 // If the app was killed mid-show, tell the operator where the partial EDL is.
@@ -99,6 +101,8 @@ app.get('/api/status', (_req, res) => {
     logging: { ...s, startedAt: sessionStartedAt, recent: logger.active ? logger.recentEvents(12) : [], writeError: logger.lastWriteError },
     recoveredSession,
     host: process.env.HOST_LABEL || os.hostname(),
+    version: updater.info.current,
+    update: updater.info,
   });
 });
 
@@ -171,6 +175,27 @@ app.post('/api/dismiss-recovered', wrap(async (_req, res) => {
   res.json({ ok: true });
 }));
 
+// Updates: check GitHub for a newer release, and install it on request.
+app.post('/api/update/check', wrap(async (_req, res) => res.json(await updater.check())));
+app.post('/api/update/install', wrap(async (_req, res) => {
+  if (logger.active) throw new Error('Stop the EDL before updating — updating restarts the logger.');
+  await updater.install();
+  res.json(updater.info);
+}));
+
+// Service control from this computer only (used by the `atem-logger` command and the tray icon).
+const isLocal = (req: express.Request) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '');
+app.post('/api/service/stop', (req, res) => {
+  if (!isLocal(req)) return res.status(403).json({ error: 'Stop the service from the computer it runs on.' });
+  res.json({ ok: true, finalized: logger.active });
+  void shutdown('Stop requested', 0);
+});
+app.post('/api/service/restart', (req, res) => {
+  if (!isLocal(req)) return res.status(403).json({ error: 'Restart the service from the computer it runs on.' });
+  res.json({ ok: true, finalized: logger.active });
+  void shutdown('Restart requested', 75);   // non-zero: the service manager starts it again
+});
+
 // EDLs in the current output folder, newest first — downloadable from the page
 // (handy when the logger runs on another machine than the edit system).
 app.get('/api/files', wrap(async (_req, res) => {
@@ -192,18 +217,22 @@ app.get('/api/files/:name', (req, res) => {
 });
 
 // ------------------------------ lifecycle -----------------------------------
-async function shutdown(sig: string) {
-  log(`${sig} received`);
+let shuttingDown = false;
+async function shutdown(reason: string, code = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log(`${reason} — shutting down`);
   if (logger.active) {
     try { const r = await logger.stop(); await fs.rm(SESSION_FILE, { force: true }); log(`EDL finalized on shutdown: ${r.edl}`); } catch (e) { log('finalize failed:', e); }
   }
-  try { await atem.disconnect(); } catch { /* ignore */ }
-  process.exit(0);
+  atem.disconnect().catch(() => {});
+  setTimeout(() => process.exit(code), 300);   // exit code 0 = stopped on purpose (service stays stopped)
 }
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT received'));
+process.on('SIGTERM', () => void shutdown('SIGTERM received'));
 
 app.listen(PORT, '0.0.0.0', () => {
   log(`ATEM Logger on http://${os.hostname()}:${PORT}  (data: ${DATA_DIR})`);
   void connectAtem(settings.atemIp);
+  if (process.env.ATEM_LOGGER_NO_UPDATE_CHECK !== '1') updater.startSchedule();
 });
