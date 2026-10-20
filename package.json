@@ -1,6 +1,6 @@
 {
   "name": "atem-logger",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Logs every Blackmagic ATEM program switch to a CMX 3600 EDL for DaVinci Resolve, with a browser control page. Runs on macOS, Windows and Docker.",
   "type": "module",
   "main": "dist/server.js",
