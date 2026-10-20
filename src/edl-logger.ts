@@ -28,6 +28,12 @@ export interface FrameRate {
 
 export type TcSource = 'atem' | 'clock';
 
+/** Edit software the files are made for. All get a CMX 3600 EDL; markers and extras differ. */
+export type Platform = 'resolve' | 'premiere' | 'avid' | 'fcp';
+export const PLATFORMS: Record<Platform, string> = {
+  resolve: 'DaVinci Resolve', premiere: 'Adobe Premiere Pro', avid: 'Avid Media Composer', fcp: 'Final Cut Pro',
+};
+
 interface EdlEvent {
   input: number;
   frame: number;                  // timecode in absolute frames
@@ -111,6 +117,7 @@ export interface EdlStartOptions {
   dropFrame?: boolean;
   recordStartTc?: string;
   reelNames?: Record<string, string>;
+  platform?: Platform;
 }
 
 const BLACK_INPUT = 10010;
@@ -120,6 +127,7 @@ export class EdlLogger {
   private me = 0;
   private title = '';
   private files = { edl: '', markers: '', json: '' };
+  private platform: Platform = 'resolve';
   private fr: FrameRate = { base: 30, real: 30000 / 1001, label: '29.97' };
   private df = true;
   private tcSource: TcSource = 'atem';
@@ -181,7 +189,10 @@ export class EdlLogger {
     const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;
     const slug = this.title.replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_').slice(0, 60) || 'ATEM_Show';
     const base = path.join(dir, `${slug}_${stamp}`);
-    this.files = { edl: `${base}.edl`, markers: `${base}_markers.edl`, json: `${base}.json` };
+    this.platform = opts.platform && opts.platform in PLATFORMS ? opts.platform : 'resolve';
+    // Markers in the format each app can import: Resolve marker EDL, Avid marker list, CSV for the others.
+    const markerExt = this.platform === 'resolve' ? '_markers.edl' : this.platform === 'avid' ? '_markers.txt' : '_markers.csv';
+    this.files = { edl: `${base}.edl`, markers: `${base}${markerExt}`, json: `${base}.json` };
 
     atem.on('stateChanged', this.onState);
     this.pushEvent(meState.programInput, this.now(), 'C', 0);
@@ -222,6 +233,7 @@ export class EdlLogger {
       frameRate: this.fr.label,
       dropFrame: this.df,
       timecodeSource: this.tcSource,
+      platform: this.platform,
       note: this.tcNote || undefined,
       currentTimecode: this.active ? framesToTc(this.now(), this.fr.base, this.df) : undefined,
       events: this.events.length,
@@ -335,13 +347,46 @@ export class EdlLogger {
         const dur = Math.max(1, Math.min(ev.duration, Math.round(next - ev.frame), 999));
         lines.push(`${num()}  ${reel(prev.reel)} V     C        ${srcIn} ${srcIn} ${recIn} ${recIn}`);
         lines.push(`${num()}  ${reel(ev.reel)} V     D    ${String(dur).padStart(3, '0')} ${srcIn} ${srcOut} ${recIn} ${recOut}`);
-        lines.push(`* FROM CLIP NAME: ${prev.name}`, `* TO CLIP NAME: ${ev.name}`, '');
+        lines.push(`* FROM CLIP NAME: ${this.clipName(prev)}`, `* TO CLIP NAME: ${this.clipName(ev)}`, '');
       } else {
         lines.push(`${num()}  ${reel(ev.reel)} V     C        ${srcIn} ${srcOut} ${recIn} ${recOut}`);
-        lines.push(`* FROM CLIP NAME: ${ev.name}`, '');
+        lines.push(`* FROM CLIP NAME: ${this.clipName(ev)}`, '');
       }
     }
     return lines.join('\n') + '\n';
+  }
+
+  /** Premiere names the imported clips after FROM CLIP NAME, so use the reel (= camera file name) there for Link Media. */
+  private clipName(ev: { reel: string; name: string }): string {
+    return this.platform === 'premiere' ? ev.reel : ev.name;
+  }
+
+  /** Markers file in the format for the chosen edit software. */
+  buildMarkersFile(): string {
+    if (this.platform === 'resolve') return this.buildMarkersEdl();
+    if (this.platform === 'avid') return this.buildAvidMarkers();
+    return this.buildMarkersCsv();
+  }
+
+  /** Avid Media Composer "Import Markers" list: User, Timecode, Track, Color, Comment, Duration (tab separated). */
+  buildAvidMarkers(): string {
+    return this.markers.map(m => {
+      const tc = this.recTc(m.frame);
+      const avidTc = this.df ? tc.replace(/:(\d\d)$/, ';$1') : tc;
+      const note = m.note.replace(/[\t\r\n]+/g, ' ');
+      return ['ATEM Logger', avidTc, 'V1', 'red', note, '1'].join('\t');
+    }).join('\n') + '\n';
+  }
+
+  /** Plain marker list (timeline and source timecode) for apps that can't import a marker file. */
+  buildMarkersCsv(): string {
+    const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const rows = ['Number,Timeline TC,Source TC,Camera,Note'];
+    this.markers.forEach((m, i) => {
+      const ev = [...this.events].reverse().find(e => e.frame <= m.frame) as any;
+      rows.push([i + 1, this.recTc(m.frame), this.tc(m.frame), q(ev?.reel ?? ''), q(m.note)].join(','));
+    });
+    return rows.join('\r\n') + '\r\n';
   }
 
   buildMarkersEdl(): string {
@@ -357,9 +402,10 @@ export class EdlLogger {
 
   private flush(): Promise<void> {
     const edl = this.buildEdl();
-    const markers = this.markers.length ? this.buildMarkersEdl() : null;
+    const markers = this.markers.length ? this.buildMarkersFile() : null;
     const json = JSON.stringify({
-      title: this.title, me: this.me + 1, frameRate: this.fr.label, dropFrame: this.df,
+      title: this.title, me: this.me + 1, frameRate: this.fr.label, dropFrame: this.df, platform: this.platform,
+      fpsBase: this.fr.base, fpsReal: this.fr.real, recordStartFrame: this.recStart, endFrame: this.endFrame ?? this.now(),
       timecodeSource: this.tcSource, startedAt: this.startedAt, stopped: this.endFrame !== null,
       events: (this.events as any[]).map(e => ({ ...e, timecode: this.tc(e.frame), record: this.recTc(e.frame) })),
       markers: this.markers.map(m => ({ ...m, record: this.recTc(m.frame) })),
