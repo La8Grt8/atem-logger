@@ -10,7 +10,8 @@ import { promises as fs, existsSync, readFileSync, writeFileSync, mkdirSync } fr
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { EdlLogger, AtemLike } from './edl-logger.js';
+import { EdlLogger, AtemLike, Platform, PLATFORMS } from './edl-logger.js';
+import { buildFcpxmlFile } from './fcpxml.js';
 import { Updater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +30,8 @@ interface Settings {
   recordStartTc: string;
   reelNames: Record<string, string>; // input number -> reel name (blank = use ATEM short name)
   lastTitle: string;
+  platform: Platform;                // edit software the files are made for
+  mediaDir: string;                  // where the camera files are (Final Cut XML); blank = folder above the EDL folder
 }
 const defaults: Settings = {
   atemIp: process.env.ATEM_IP ?? '192.168.11.240',
@@ -38,6 +41,8 @@ const defaults: Settings = {
   recordStartTc: '01:00:00:00',
   reelNames: {},
   lastTitle: '',
+  platform: 'resolve',
+  mediaDir: '',
 };
 function loadSettings(): Settings {
   try { return { ...defaults, ...JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) }; } catch { return { ...defaults }; }
@@ -100,6 +105,9 @@ app.get('/api/status', (_req, res) => {
     },
     logging: { ...s, startedAt: sessionStartedAt, recent: logger.active ? logger.recentEvents(12) : [], writeError: logger.lastWriteError },
     recoveredSession,
+    export: lastExport,
+    platform: settings.platform,
+    platformName: PLATFORMS[settings.platform],
     host: process.env.HOST_LABEL || os.hostname(),
     version: updater.info.current,
     update: updater.info,
@@ -126,6 +134,11 @@ app.post('/api/settings', wrap(async (req, res) => {
   const ipChanged = typeof b.atemIp === 'string' && b.atemIp.trim() && b.atemIp.trim() !== settings.atemIp;
   if (ipChanged && logger.active) throw new Error('Stop logging before changing the switcher IP.');
   if (typeof b.outputDir === 'string') settings.outputDir = cleanFolderPath(b.outputDir);
+  if (typeof b.mediaDir === 'string') settings.mediaDir = b.mediaDir.trim() ? cleanFolderPath(b.mediaDir) : '';
+  if (typeof b.platform === 'string') {
+    if (!(b.platform in PLATFORMS)) throw new Error('Unknown edit software.');
+    settings.platform = b.platform as Platform;
+  }
   for (const k of ['atemIp', 'tcSource', 'recordStartTc', 'lastTitle'] as const) {
     if (typeof b[k] === 'string') (settings as any)[k] = b[k].trim();
   }
@@ -164,7 +177,7 @@ app.post('/api/start', wrap(async (req, res) => {
   if (vol && !existsSync(vol)) throw new Error(`The drive "${vol.slice(9)}" isn't connected. Plug it in (or pick another folder) and try again.`);
   const file = await logger.start(atem as unknown as AtemLike, {
     title, me: settings.me, outputDir: settings.outputDir, tcSource: settings.tcSource,
-    recordStartTc: settings.recordStartTc, reelNames: settings.reelNames,
+    recordStartTc: settings.recordStartTc, reelNames: settings.reelNames, platform: settings.platform,
   });
   sessionStartedAt = new Date();
   recoveredSession = null;
@@ -178,6 +191,8 @@ app.post('/api/stop', wrap(async (_req, res) => {
   sessionStartedAt = null;
   await fs.rm(SESSION_FILE, { force: true });
   log(`EDL stopped: ${r.events} switches over ${r.length} → ${r.edl}`);
+  lastExport = null;
+  if (settings.platform === 'fcp') void exportFcpxml(r.edl.replace(/\.edl$/i, '.json'));
   res.json(r);
 }));
 
@@ -214,23 +229,61 @@ app.post('/api/service/restart', (req, res) => {
   void shutdown('Restart requested', 75);   // non-zero: the service manager starts it again
 });
 
+// ---- Final Cut Pro XML -----------------------------------------------------
+let lastExport: { state: 'working' | 'done' | 'failed'; message: string; file?: string; warnings?: string[]; at: Date } | null = null;
+
+/** Builds the .fcpxml for a logged show by finding the camera files (named by reel) and reading their timecode. */
+async function exportFcpxml(jsonFile: string, mediaDir?: string) {
+  const dir = mediaDir || settings.mediaDir || path.dirname(path.dirname(jsonFile));
+  lastExport = { state: 'working', message: `Looking for camera files in ${dir}…`, at: new Date() };
+  try {
+    const r = await buildFcpxmlFile(jsonFile, dir);
+    lastExport = { state: 'done', file: r.file, warnings: r.warnings, at: new Date(),
+      message: `Final Cut XML ready: ${path.basename(r.file)} (${r.clips} clips, ${r.markers} markers, from ${Object.keys(r.media).length} camera files).` };
+    log(lastExport.message);
+  } catch (e: any) {
+    lastExport = { state: 'failed', at: new Date(), message: `Final Cut XML not made yet: ${e?.message ?? e}` };
+    log(lastExport.message);
+  }
+  return lastExport;
+}
+
+app.post('/api/fcpxml', wrap(async (req, res) => {
+  const b = req.body ?? {};
+  const mediaDir = typeof b.mediaDir === 'string' && b.mediaDir.trim() ? cleanFolderPath(b.mediaDir) : undefined;
+  if (mediaDir) { settings.mediaDir = mediaDir; saveSettings(); }
+  let name = typeof b.session === 'string' && b.session ? path.basename(b.session) : '';
+  if (!name) {   // newest logged show in the EDL folder
+    const jsons = (await fs.readdir(settings.outputDir).catch(() => [] as string[])).filter(n => n.toLowerCase().endsWith('.json'));
+    const stats = await Promise.all(jsons.map(async n => ({ n, t: (await fs.stat(path.join(settings.outputDir, n))).mtimeMs })));
+    name = stats.sort((x, y) => y.t - x.t)[0]?.n ?? '';
+  }
+  if (!name) throw new Error('No logged shows in the EDL folder yet.');
+  const r = await exportFcpxml(path.join(settings.outputDir, name.replace(/\.(edl|fcpxml)$/i, '.json')), mediaDir);
+  if (r?.state === 'failed') return res.status(400).json({ error: r.message });
+  res.json(r);
+}));
+
 // EDLs in the current output folder, newest first — downloadable from the page
 // (handy when the logger runs on another machine than the edit system).
+const OUTPUT_EXT = /\.(edl|fcpxml|txt|csv)$/i;
 app.get('/api/files', wrap(async (_req, res) => {
   const dir = settings.outputDir;
-  let names: string[] = [];
-  try { names = (await fs.readdir(dir)).filter(n => n.toLowerCase().endsWith('.edl')); } catch { return res.json({ dir, files: [], error: 'Folder not found or not reachable' }); }
-  const files = await Promise.all(names.map(async n => {
+  let all: string[] = [];
+  try { all = await fs.readdir(dir); } catch { return res.json({ dir, files: [], sessions: [], error: 'Folder not found or not reachable' }); }
+  const withTime = async (names: string[]) => (await Promise.all(names.map(async n => {
     const st = await fs.stat(path.join(dir, n));
     return { name: n, size: st.size, modified: st.mtime };
-  }));
-  files.sort((a, b) => +b.modified - +a.modified);
-  res.json({ dir, files: files.slice(0, 30) });
+  }))).sort((a, b) => +b.modified - +a.modified);
+  const files = await withTime(all.filter(n => OUTPUT_EXT.test(n)));
+  // Logged shows (their .json journals), for building the Final Cut XML later.
+  const sessions = (await withTime(all.filter(n => /\.json$/i.test(n)))).slice(0, 20).map(f => ({ name: f.name, modified: f.modified }));
+  res.json({ dir, files: files.slice(0, 40), sessions });
 }));
 
 app.get('/api/files/:name', (req, res) => {
   const name = path.basename(req.params.name);
-  if (!name.toLowerCase().endsWith('.edl')) return res.status(400).end();
+  if (!OUTPUT_EXT.test(name)) return res.status(400).end();
   res.download(path.join(settings.outputDir, name), name, err => { if (err && !res.headersSent) res.status(404).end(); });
 });
 

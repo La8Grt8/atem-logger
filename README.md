@@ -1,9 +1,9 @@
 # ATEM Logger
 
-Logs every program switch on a Blackmagic ATEM switcher to a **CMX 3600 EDL** for
-DaVinci Resolve. It's built for switchers without ISO recording (e.g. the Constellation 4K):
+Logs every program switch on a Blackmagic ATEM switcher to an **EDL** for
+**DaVinci Resolve, Adobe Premiere Pro, Avid Media Composer or Final Cut Pro**. It's built for switchers without ISO recording (e.g. the Constellation 4K):
 record each camera separately (HyperDecks, camera cards), log the cuts with ATEM Logger, then
-conform the EDL against the camera files in Resolve to rebuild the live edit.
+conform the EDL against the camera files in your edit software to rebuild the live edit.
 
 It runs as a **background service** on a Mac or Windows PC on the same network as the switcher.
 It starts when the computer boots, with nobody logged in, and restarts itself if it ever crashes.
@@ -16,6 +16,8 @@ offers to install them.
 - Live timecode, program/preview, and the last 12 switches
 - Markers: button, Enter, or press **M**. They export as a separate Resolve markers EDL
 - Reel name for each input, so the EDL matches your camera filenames
+- **Edit software** choice: files made for Resolve, Premiere Pro, Avid or Final Cut Pro (FCPXML built
+  from your camera files, with their timecode)
 - Download links for finished EDLs
 - Captures cuts from any source: the hardware panel, ATEM Software Control, macros, Companion, etc.
 - The EDL is saved after every cut, so a crash or power loss never loses the show
@@ -161,7 +163,8 @@ Docker installs update by pulling the new image instead (see below).
 2. Open **Switcher & timecode settings**, enter your ATEM's IP address, and click **Save settings**.
    The header turns green when it connects.
 3. Under **Reel names**, set the reel for each camera input (e.g. CAM1, CAM2, CAM3) and save.
-4. Enter a title and save folder, then click **Start EDL**. Click **Stop EDL** when the show ends.
+4. Enter a title and save folder, choose your **Edit software**, then click **Start EDL**. Click
+   **Stop EDL** when the show ends. See [Edit software](#edit-software) for importing into your app.
 
 ## Conforming in DaVinci Resolve
 
@@ -178,6 +181,44 @@ Timecode must match: the EDL's source timecode comes from the switcher's clock (
 computer's clock, if you choose that), so the camera files need the same time-of-day timecode,
 e.g. jam-synced with Tentacle Sync or fed from the same generator as the switcher.
 
+## Edit software
+
+Pick your edit software on the control page (**Edit software**, under the save folder). Every
+show gets a CMX 3600 EDL plus a `.json` log; what else you get depends on the choice:
+
+| Edit software | Files | Markers |
+|---|---|---|
+| **DaVinci Resolve** | `.edl` | `_markers.edl` (Resolve marker EDL) |
+| **Premiere Pro** | `.edl` with clip names = reel names (for Link Media) | `_markers.csv` list (Premiere can't import marker files) |
+| **Avid Media Composer** | `.edl` (tape names = reel names) | `_markers.txt` (Avid marker list) |
+| **Final Cut Pro** | `.fcpxml` built from the camera files, plus `.edl` | inside the FCPXML, on the clips |
+
+**DaVinci Resolve:** see [Conforming in DaVinci Resolve](#conforming-in-davinci-resolve).
+
+**Premiere Pro:** File ▸ Import ▸ choose the `.edl` and pick a sequence preset that matches the
+show. Premiere builds the sequence from offline clips named CAM1, CAM2… Select them in the bin,
+right-click ▸ **Link Media**, keep *File Name* ticked and untick *File Extension*, then point it at
+`CAM1.mov`. The others link from the same folders. The `_markers.csv` lists each marker's timeline
+timecode and note.
+
+**Avid Media Composer:** File ▸ Import the `.edl` (or use EDL Manager) to get a sequence of offline
+clips whose **Tape** names are CAM1, CAM2… Link your camera files, give them the same Tape names, and
+relink the sequence (Clip ▸ Relink, by tape name and timecode). To bring in markers, open the
+Markers window, Fast Menu ▸ **Import Markers**, and choose the `_markers.txt`.
+
+**Final Cut Pro** can't import EDLs, so the logger writes an **FCPXML** instead. It finds the camera
+files named after the reels (`CAM1.mov`, `CAM2.mov`… anywhere under the folder above the EDL folder,
+or a folder you choose), reads each file's start timecode, and describes the cut with those files.
+This happens automatically when you stop an EDL. If the camera files aren't on the drive yet, use
+**EDL files ▸ Build Final Cut XML** later. In Final Cut: File ▸ Import ▸ XML, choose the
+`.fcpxml`, and you get a new event and project already linked to the camera files, with the
+markers on the clips. QuickTime (`.mov`) and MP4 camera files with a timecode track are supported.
+
+> The Resolve workflow is tested on real shows. The Premiere and Avid EDLs follow the standard
+> CMX 3600 format those apps import. The FCPXML has been checked by importing it into Resolve, which
+> linked all the camera files at the right timecode, but it hasn't yet been opened in Final Cut
+> itself. Try a short test show in your app first.
+
 ## Settings
 
 | Setting | Where | Default |
@@ -186,6 +227,8 @@ e.g. jam-synced with Tentacle Sync or fed from the same generator as the switche
 | M/E bus logged | same | M/E 1 |
 | Timecode source | same | Switcher timecode |
 | Timeline start TC | same | 01:00:00:00 |
+| Edit software | main panel | DaVinci Resolve |
+| Camera files folder (Final Cut) | EDL files ▸ Final Cut Pro XML | folder above the EDL folder |
 | Save folder | main panel | `~/Movies/ATEM EDLs` (Mac), `%USERPROFILE%\Videos\ATEM EDLs` (Windows) |
 | Port | `PORT` environment variable when installing (Docker: change the left side of `9920:9920`) | 9920 |
 
@@ -215,6 +258,7 @@ npm ci --include=dev --ignore-scripts
 npm run build
 npm start        # runs in the foreground
 npm test         # simulated-switcher test of the EDL engine
+node test/platforms-test.mjs [camera-folder]   # one simulated show per edit platform (+ FCPXML)
 ```
 
 The EDL engine (`src/edl-logger.ts`) is shared with

@@ -41,6 +41,7 @@
   .check li::before { content:""; position:absolute; left:-15px; top:3px; width:9px; height:9px; border:1.4px solid var(--ink); border-radius:2px; }
   .page2 { break-before:page; }
   .page3 { break-before:page; }
+  .apps { margin-top:6px; gap:10px; } .apps .card { font-size:8.6pt; line-height:1.35; padding:7px 9px; } .apps h3 { margin:0 0 3px; }
   .page3 ~ table.trouble { font-size:8.3pt; }
   .page3 ~ table.trouble td { padding:2px 8px 2px 0; line-height:1.32; }
   .page3 ~ h2 { margin-top:9px; }
@@ -76,8 +77,8 @@
 
 <p>ATEM Logger runs as a background service on a computer on the same network as your ATEM switcher. It records every
 program change (from the panel, ATEM Software Control, macros or anything else) with timecode, and
-saves it as a <b>CMX 3600 EDL</b>. Record each camera separately (HyperDecks or camera cards), then
-conform the EDL in Resolve against those files to get the switched show back. You control it from a web page.</p>
+saves it as an <b>EDL</b> for DaVinci Resolve, Premiere Pro, Avid or Final Cut Pro. Record each camera separately (HyperDecks or camera cards), then
+conform the EDL in your edit software against those files to get the switched show back. You control it from a web page.</p>
 
 <div class="studio">
   <b>Links Live Media studio setup</b>
@@ -86,6 +87,7 @@ conform the EDL in Resolve against those files to get the switched show back. Yo
     <tr><td>Runs on</td><td>Studio Mac Mini, as a <b>background service</b> that starts at boot. Control it from the <b>◎ menu-bar icon</b></td></tr>
     <tr><td>Switcher</td><td>ATEM 2 M/E Constellation 4K · <span class="mono">192.168.11.240</span></td></tr>
     <tr><td>Reels</td><td>1 Host → <b>CAM1</b> &nbsp;·&nbsp; 2 Wide → <b>CAM2</b> &nbsp;·&nbsp; 3 Guest → <b>CAM3</b></td></tr>
+    <tr><td>Edit software</td><td>DaVinci Resolve</td></tr>
   </table>
 </div>
 
@@ -128,6 +130,7 @@ conform the EDL in Resolve against those files to get the switched show back. Yo
       <li>Program / Preview match what's on the multiview.</li>
       <li>Type the <b>title</b> (e.g. <span class="mono">Episode_23</span>) and the <b>save folder</b> for this episode.</li>
       <li>Project drive is mounted.</li>
+      <li><b>Edit software</b> is set to the app you'll cut in.</li>
       <li>Cameras / HyperDecks are recording with synced timecode.</li>
     </ul>
     <h3>Roll</h3>
@@ -146,7 +149,8 @@ conform the EDL in Resolve against those files to get the switched show back. Yo
     <p>Click <span class="btn b-red">Stop EDL</span> and confirm. Your files are in the save folder:</p>
     <ul>
       <li><span class="mono">Episode_23_&lt;date&gt;_&lt;time&gt;.edl</span>, the cuts</li>
-      <li><span class="mono">…_markers.edl</span>, only if you added markers</li>
+      <li>a markers file for your edit software (<span class="mono">_markers.edl</span> / <span class="mono">.txt</span> / <span class="mono">.csv</span>), if you added markers</li>
+      <li>for Final Cut, a <span class="mono">.fcpxml</span></li>
     </ul>
     <p>They're also listed under <b>EDL files</b> for download.</p>
   </div>
@@ -154,15 +158,23 @@ conform the EDL in Resolve against those files to get the switched show back. Yo
 <div class="warn"><b>The EDL is saved after every cut.</b> If the computer or app restarts mid-show, nothing already
 logged is lost. The page points you to the partial file, and you can start a new EDL to keep going.</div>
 
-<h2><span class="n">4</span>Conform in DaVinci Resolve</h2>
+<h2><span class="n">4</span>Import into your edit software</h2>
+<p>Name each camera file after its reel (<span class="mono">CAM1.mov</span>, <span class="mono">CAM2.mov</span>, <span class="mono">CAM3.mov</span>). Every app matches on that name.</p>
+<h3>DaVinci Resolve</h3>
 <ol>
-  <li><b>Project Settings → Master Settings:</b> set the timeline frame rate to the show's rate (e.g. 29.97) <i>before</i> adding media.</li>
-  <li><b>Project Settings → General Options → Conform Options:</b> tick <b>Assist using reel names from the: Source clip filename</b>. You need this in every new project, so add it to your project template.</li>
-  <li><b>Rename each camera file to its reel</b> (<span class="mono">CAM1.mov</span>, <span class="mono">CAM2.mov</span>, <span class="mono">CAM3.mov</span>) and import them into the Media Pool.</li>
-  <li><b>File → Import → Timeline</b>, pick the <span class="mono">.edl</span>, and <b>untick</b> <i>Automatically import source clips into media pool</i>.</li>
-  <li><b>Markers:</b> right-click the new timeline in the Media Pool → <b>Timelines → Import → Timeline Markers from EDL</b>, and pick the <span class="mono">_markers.edl</span>.</li>
-  <li><b>Check sync</b> at a clap or hard consonant. Lay the separately recorded audio underneath and line it up.</li>
+  <li><b>Project Settings:</b> set the timeline frame rate (e.g. 29.97) <i>before</i> adding media. In <b>General Options → Conform Options</b>, tick <b>Assist using reel names from the: Source clip filename</b>. This is needed in every new project, so save it in your project template.</li>
+  <li>Import the camera files, then go to <b>File → Import → Timeline</b>, pick the <span class="mono">.edl</span>, and <b>untick</b> <i>Automatically import source clips</i>.</li>
+  <li><b>Markers:</b> right-click the timeline in the Media Pool → <b>Timelines → Import → Timeline Markers from EDL</b>, and pick the <span class="mono">_markers.edl</span>.</li>
 </ol>
+<div class="cols3 apps">
+  <div class="card"><h3>Premiere Pro</h3>
+    <b>File → Import</b> the <span class="mono">.edl</span> with a matching sequence preset. Select the offline CAM clips, right-click → <b>Link Media</b>, keep <i>File Name</i> ticked, untick <i>File Extension</i>, then locate <span class="mono">CAM1.mov</span>. Marker times are in <span class="mono">_markers.csv</span>; Premiere can't import marker files.</div>
+  <div class="card"><h3>Avid Media Composer</h3>
+    <b>File → Import</b> the <span class="mono">.edl</span>, or use EDL Manager. Link the camera files and set their <b>Tape</b> names to CAM1, CAM2…, then relink the sequence by tape and timecode. For markers, go to the Markers window, then <b>Fast Menu → Import Markers</b> and choose <span class="mono">_markers.txt</span>.</div>
+  <div class="card"><h3>Final Cut Pro</h3>
+    The logger builds a <span class="mono">.fcpxml</span> from the camera files when you stop. If they weren't on the drive yet, use <b>EDL files → Build Final Cut XML</b> later. Then go to <b>File → Import → XML</b>. It opens already linked, with the markers on the clips.</div>
+</div>
+<p class="cap" style="margin-top:5px">Then check sync at a clap or hard consonant, and lay the separately recorded audio underneath.</p>
 
 <h2><span class="n">5</span>Updates</h2>
 <p>The app checks GitHub for a new version when it starts and every few hours. When there is one, the control page shows a

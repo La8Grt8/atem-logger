@@ -60,6 +60,8 @@
   .update b { font-size:15px; } .update .grow { flex:1; min-width:220px; color:var(--dim); font-size:13px; }
   .update button { padding:9px 14px; } .update .primary { background:var(--blue); }
   .ver { color:var(--dim); font-size:12px; margin-left:auto; }
+  .fcpbox { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+  .fcpbox h3 { font-size:14px; margin:0 0 6px; }
   .linkbtn { background:none; color:var(--blue); padding:0; font-weight:500; font-size:13px; }
   kbd { background:#0f1114; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
 </style>
@@ -94,6 +96,14 @@
       <input id="title" placeholder="Episode_23" autocomplete="off">
       <label for="outdir">Save EDLs to folder</label>
       <input id="outdir" class="pathin" autocomplete="off" placeholder="/Volumes/Drive/Show/Episode/EDL">
+      <label for="platform">Edit software</label>
+      <select id="platform">
+        <option value="resolve">DaVinci Resolve</option>
+        <option value="premiere">Adobe Premiere Pro</option>
+        <option value="avid">Avid Media Composer</option>
+        <option value="fcp">Final Cut Pro</option>
+      </select>
+      <div class="hint" id="platformHint"></div>
       <button class="go" id="startBtn">Start EDL</button>
     </div>
 
@@ -126,6 +136,16 @@
     <h2>EDL files</h2>
     <div class="path" id="filesDir"></div>
     <table><tbody id="files"></tbody></table>
+    <div id="fcpBox" class="fcpbox" style="display:none">
+      <h3>Final Cut Pro XML</h3>
+      <p class="hint" style="margin-top:0">Final Cut can't import EDLs, so the logger builds an FCPXML from the camera files. It finds files named after the reels (CAM1.mov, CAM2.mov…) and reads their timecode. Run it once the camera files are on the drive; it also runs by itself when you stop an EDL.</p>
+      <label for="session">Show</label>
+      <select id="session"></select>
+      <label for="mediadir">Camera files folder <span style="color:var(--dim)">(searched with subfolders)</span></label>
+      <input id="mediadir" class="pathin" autocomplete="off" placeholder="Blank = the folder above the EDL folder">
+      <button id="buildFcp" style="margin-top:10px">Build Final Cut XML</button>
+      <div class="hint" id="fcpMsg"></div>
+    </div>
     <details>
       <summary>Switcher &amp; timecode settings</summary>
       <label for="ip">ATEM IP address</label>
@@ -153,7 +173,14 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 function say(text, kind='err') { const m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; if (kind !== 'err') setTimeout(() => { if (m.textContent === text) m.className = 'msg'; }, 6000); }
 function clearMsg() { $('msg').className = 'msg'; }
 
-let wasActive = null, settings = null, lastRecentKey = '', runningVersion = null;
+let wasActive = null, settings = null, lastRecentKey = '', runningVersion = null, lastExportAt = null;
+const PLATFORM_HINT = {
+  resolve: 'Writes a CMX 3600 EDL and a Resolve markers EDL.',
+  premiere: 'Writes a CMX 3600 EDL whose clip names match the camera files (for Link Media), plus a marker list (.csv).',
+  avid: 'Writes a CMX 3600 EDL and an Avid marker list (.txt) for Tools ▸ Markers ▸ Import.',
+  fcp: 'Writes an EDL and builds a Final Cut Pro XML (.fcpxml) from the camera files — see EDL files.',
+};
+function showPlatform() { const v = $('platform').value; $('platformHint').textContent = PLATFORM_HINT[v] || ''; $('fcpBox').style.display = v === 'fcp' ? '' : 'none'; }
 const later = () => { try { return localStorage.getItem('atemLoggerLater') || ''; } catch { return ''; } };
 
 function showUpdate(s, L) {
@@ -182,6 +209,7 @@ async function loadSettings() {
   settings = await api('/api/settings');
   if (!$('title').value) $('title').value = settings.lastTitle || '';
   $('outdir').value = settings.outputDir;
+  $('platform').value = settings.platform || 'resolve'; $('mediadir').value = settings.mediaDir || ''; showPlatform();
   $('ip').value = settings.atemIp; $('me').value = settings.me; $('tcsrc').value = settings.tcSource; $('recstart').value = settings.recordStartTc;
 }
 
@@ -197,6 +225,11 @@ async function loadFiles() {
   $('filesDir').textContent = f.dir + (f.error ? ' — ' + f.error : '');
   $('files').innerHTML = f.files.length ? f.files.map(x => `<tr><td><a href="/api/files/${encodeURIComponent(x.name)}" download>${esc(x.name)}</a></td><td style="color:var(--dim);white-space:nowrap">${new Date(x.modified).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</td></tr>`).join('')
     : '<tr><td style="color:var(--dim)">No EDLs in this folder yet</td></tr>';
+  const keep = $('session').value;
+  $('session').innerHTML = (f.sessions || []).length
+    ? f.sessions.map(x => `<option value="${esc(x.name)}">${esc(x.name.replace(/\.json$/i, ''))}</option>`).join('')
+    : '<option value="">No logged shows in this folder yet</option>';
+  if (keep && [...$('session').options].some(o => o.value === keep)) $('session').value = keep;
 }
 
 async function poll() {
@@ -215,7 +248,7 @@ async function poll() {
   $('recBadge').style.display = L.active ? 'inline-flex' : 'none';
   $('tc').textContent = L.active ? L.currentTimecode : (a.connected ? 'Ready' : '--:--:--:--');
   $('stats').innerHTML = L.active
-    ? `<span><b>${esc(L.title)}</b></span><span>Switches <b>${L.events}</b></span><span>Markers <b>${L.markers}</b></span><span>${esc(L.frameRate)} ${L.dropFrame ? 'DF' : 'NDF'} · TC from ${L.timecodeSource === 'atem' ? 'switcher' : 'computer clock'}</span>`
+    ? `<span><b>${esc(L.title)}</b></span><span>Switches <b>${L.events}</b></span><span>Markers <b>${L.markers}</b></span><span>${esc(L.frameRate)} ${L.dropFrame ? 'DF' : 'NDF'} · TC from ${L.timecodeSource === 'atem' ? 'switcher' : 'computer clock'}</span><span>For ${esc(s.platformName || '')}</span>`
     : '';
   $('curFile').textContent = L.active ? L.edlFile : '';
   $('markBtn').disabled = !L.active; $('note').disabled = !L.active;
@@ -234,6 +267,13 @@ async function poll() {
   else if ($('msg').className.includes('warn') && a.connected) clearMsg();
 
   showUpdate(s, L);
+  const ex = s.export;
+  if (ex && ex.at !== lastExportAt) {
+    lastExportAt = ex.at;
+    $('fcpMsg').innerHTML = esc(ex.message) + (ex.warnings && ex.warnings.length ? '<br>' + ex.warnings.map(esc).join('<br>') : '');
+    $('fcpMsg').style.color = ex.state === 'failed' ? 'var(--amber)' : '';
+    if (ex.state !== 'working') loadFiles();
+  }
   const key = (L.recent || []).map(r => r.timecode).join();
   if (key !== lastRecentKey) {
     lastRecentKey = key;
@@ -300,6 +340,22 @@ $('checkUpd').onclick = async () => {
     $('checkMsg').textContent = u.message ? u.message : u.available ? `Version ${u.latest} is available.` : 'You have the latest version.';
   } catch (e) { $('checkMsg').textContent = e.message; }
   poll();
+};
+
+$('platform').addEventListener('change', async () => {
+  showPlatform();
+  try { await api('/api/settings', { platform: $('platform').value }); say(`Files will be made for ${$('platform').selectedOptions[0].text}. Applies from the next EDL you start.`, 'info'); }
+  catch (e) { say(e.message); }
+});
+$('buildFcp').onclick = async () => {
+  $('buildFcp').disabled = true; $('fcpMsg').style.color = ''; $('fcpMsg').textContent = 'Finding camera files and reading timecode…';
+  try {
+    const r = await api('/api/fcpxml', { session: $('session').value, mediaDir: $('mediadir').value });
+    lastExportAt = r.at;
+    $('fcpMsg').innerHTML = esc(r.message) + (r.warnings && r.warnings.length ? '<br>' + r.warnings.map(esc).join('<br>') : '');
+    loadFiles();
+  } catch (e) { $('fcpMsg').style.color = 'var(--amber)'; $('fcpMsg').textContent = e.message; }
+  $('buildFcp').disabled = false;
 };
 
 loadSettings().then(() => { loadFiles(); poll(); setInterval(poll, 250); setInterval(loadFiles, 15000); });
