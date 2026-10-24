@@ -1,20 +1,19 @@
 #!/bin/bash
 # ATEM Logger — macOS installer.
-# Builds the app and installs a LaunchAgent so it runs in the background and starts at login.
-# Re-run any time to update (e.g. after `git pull`).
+# Builds the app and installs it as a system service that starts at boot (no login needed),
+# plus the `atem-logger` command and a menu-bar icon. Re-run any time to update (e.g. after `git pull`).
+# Asks for your Mac password once (admin account required).
 set -e
 cd "$(dirname "$0")/.."
 APP_DIR="$(pwd)"
 PORT="${PORT:-9920}"
-LABEL="com.atem-logger"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-DATA_DIR="$HOME/.atem-logger"
 
 echo "== ATEM Logger installer =="
 echo "App folder: $APP_DIR"
 
 # --- Node.js ---------------------------------------------------------------
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+[ -s "$HOME/.nvm/nvm.sh" ] && ! command -v node >/dev/null 2>&1 && . "$HOME/.nvm/nvm.sh" >/dev/null
 if ! command -v node >/dev/null 2>&1; then
   if command -v brew >/dev/null 2>&1; then
     echo "Node.js not found — installing with Homebrew…"
@@ -41,49 +40,37 @@ npm ci --include=dev --ignore-scripts --no-fund --no-audit --loglevel=error
 echo "Building…"
 npm run build --silent
 
-# --- LaunchAgent -----------------------------------------------------------
-mkdir -p "$DATA_DIR" "$HOME/Library/LaunchAgents"
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$NODE_BIN</string>
-    <string>$APP_DIR/dist/server.js</string>
-  </array>
-  <key>WorkingDirectory</key><string>$APP_DIR</string>
-  <key>EnvironmentVariables</key>
-  <dict><key>PORT</key><string>$PORT</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$DATA_DIR/logger.log</string>
-  <key>StandardErrorPath</key><string>$DATA_DIR/logger.log</string>
-</dict>
-</plist>
-EOF
+# Menu-bar app: rebuild from source if the Swift compiler is available, else use the prebuilt copy.
+if command -v swiftc >/dev/null 2>&1 && xcode-select -p >/dev/null 2>&1; then
+  bash tray/mac/build.sh >/dev/null 2>&1 || echo "(Using the prebuilt menu-bar app.)"
+fi
+xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true
 
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-sleep 1
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
+# --- Service (needs admin) ---------------------------------------------------
+echo
+echo "Installing the background service — enter your Mac password if asked."
+if [ -t 0 ]; then
+  sudo bash "$APP_DIR/scripts/mac/install-service.sh" "$USER" "$APP_DIR" "$NODE_BIN" "$PORT"
+else
+  # No terminal (e.g. run from another app): use the standard macOS admin prompt.
+  /usr/bin/osascript -e "do shell script \"bash '$APP_DIR/scripts/mac/install-service.sh' '$USER' '$APP_DIR' '$NODE_BIN' '$PORT'\" with administrator privileges"
+fi
 
 # --- Wait for it -----------------------------------------------------------
 for i in $(seq 1 20); do
   if curl -s -o /dev/null "http://localhost:$PORT/api/status"; then
     echo
-    echo "ATEM Logger is running: http://localhost:$PORT"
+    echo "ATEM Logger is running as a service: http://localhost:$PORT"
     IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
     [ -n "$IP" ] && echo "From other devices on the network: http://$IP:$PORT"
-    echo "It starts automatically when you log in. Log: $DATA_DIR/logger.log"
     echo
-    echo "If macOS asks to allow \"node\" to find devices on your local network, click Allow —"
-    echo "it needs that to reach the switcher."
+    echo "It starts automatically when the Mac boots — no login needed."
+    echo "Control it from the menu-bar icon, or in Terminal:"
+    echo "  atem-logger status | start | stop | restart | open | logs"
     open "http://localhost:$PORT"
     exit 0
   fi
   sleep 1
 done
-echo "The app didn't respond on port $PORT. Check the log: $DATA_DIR/logger.log"
+echo "The service didn't respond on port $PORT. Check the log: ~/.atem-logger/logger.log"
 exit 1

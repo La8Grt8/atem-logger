@@ -8,7 +8,7 @@ RUN npm run build
 FROM node:22-bookworm-slim
 LABEL org.opencontainers.image.source=https://github.com/La8Grt8/atem-logger
 WORKDIR /app
-ENV NODE_ENV=production PORT=9920 DATA_DIR=/data OUTPUT_DIR=/edl
+ENV NODE_ENV=production ATEM_LOGGER_DOCKER=1 PORT=9920 DATA_DIR=/data OUTPUT_DIR=/edl
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/dist ./dist
