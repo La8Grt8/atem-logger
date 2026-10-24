@@ -23,6 +23,8 @@ offers to install them.
 - The EDL is saved after every cut, so a crash or power loss never loses the show
 - Runs as a system service, controlled from the tray icon or command line
 - Built-in update check: one click to install a new release
+- **Tentacle Sync jam**: plug Tentacle Sync timecode boxes into the logger computer by USB and
+  they're set to the same timecode the EDL uses, so camera files conform. See below.
 
 > ⚠️ Early release. The EDL engine has been used on a real show and conformed in DaVinci
 > Resolve, but this standalone app is new. Run a short test before relying on it for a live job.
@@ -165,6 +167,35 @@ Docker installs update by pulling the new image instead (see below).
 3. Under **Reel names**, set the reel for each camera input (e.g. CAM1, CAM2, CAM3) and save.
 4. Enter a title and save folder, choose your **Edit software**, then click **Start EDL**. Click
    **Stop EDL** when the show ends. See [Edit software](#edit-software) for importing into your app.
+
+## Tentacle Sync: jam cameras to the EDL timecode
+
+> ⚠️ Untested on real hardware. The USB protocol was reverse-engineered from Tentacle's own
+> Tentacle Setup 3.00 app. Do a test jam and check it before relying on it for a show.
+
+The EDL only conforms if the camera files carry the same timecode as the logger. If your
+cameras get timecode from **Tentacle Sync** boxes (Sync, Sync E, Track E), the **Tentacle Sync**
+panel sets them for you:
+
+1. **Quit Tentacle Setup** if it's open. It holds the same USB connection.
+2. Plug a Tentacle into the logger computer with a USB cable and switch it on.
+3. With **Auto-jam when plugged in** on (the default), it's jammed within a couple of seconds.
+   Otherwise press **Jam Tentacles**. Wait for **✓ in sync**.
+4. Unplug it, mount it on the camera, and do the next one.
+
+Each jam sets the Tentacle's frame rate to match the switcher, sends the timecode on a frame
+boundary, reads it back and corrects once if it landed a frame off. **Check** reads every
+plugged-in Tentacle and shows how far it has drifted, without changing anything.
+
+The timecode comes from the **Timecode source** setting, the same one the EDL uses: the
+switcher's timecode, or this computer's clock. 50p and 59.94p switchers are jammed at 25 and
+29.97 because Tentacles run timecode at up to 30 fps.
+
+- **Mac:** works with the normal install.
+- **Windows:** the Tentacle needs a WinUSB driver, which Tentacle's own Windows software
+  normally installs. Not yet tested.
+- **Docker:** USB isn't passed into the container, so the panel shows no Tentacles. Jam from a
+  Mac or PC install instead.
 
 ## Conforming in DaVinci Resolve
 

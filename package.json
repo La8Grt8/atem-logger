@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "node test/sim-test.mjs"
+    "test": "node test/sim-test.mjs && node --test test/tentacle.test.mjs"
   },
   "license": "MIT",
   "dependencies": {
@@ -35,5 +35,8 @@
     "video-switcher",
     "multicam"
   ],
-  "author": "Robert Metcalfe (Links Live Media)"
+  "author": "Robert Metcalfe (Links Live Media)",
+  "optionalDependencies": {
+    "usb": "^2.19.1"
+  }
 }

@@ -10,9 +10,11 @@ import { promises as fs, existsSync, readFileSync, writeFileSync, mkdirSync } fr
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { EdlLogger, AtemLike, Platform, PLATFORMS } from './edl-logger.js';
+import { EdlLogger, AtemLike, Platform, PLATFORMS, frameRateFromVideoMode, framesToTc, tcToFrames } from './edl-logger.js';
 import { buildFcpxmlFile } from './fcpxml.js';
 import { Updater } from './updater.js';
+import { checkTentacles, jamTentacles, readClockTime, tentacleRateFor, AtemAnchor, DeviceReport } from './tentacle-jam.js';
+import { formatRate, listTentacles } from './tentacle-usb.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 9920);
@@ -32,6 +34,13 @@ interface Settings {
   lastTitle: string;
   platform: Platform;                // edit software the files are made for
   mediaDir: string;                  // where the camera files are (Final Cut XML); blank = folder above the EDL folder
+  tentacle: TentacleSettings;
+}
+interface TentacleSettings {
+  autoJam: boolean;                 // jam each Tentacle as soon as it is plugged in
+  setFrameRate: boolean;            // match the Tentacle frame rate to the switcher
+  offsetFrames: number;             // fixed correction added to the jammed timecode
+  autoCorrect: boolean;             // re-jam once if the read-back is a frame or more off
 }
 const defaults: Settings = {
   atemIp: process.env.ATEM_IP ?? '192.168.11.240',
@@ -43,9 +52,13 @@ const defaults: Settings = {
   lastTitle: '',
   platform: 'resolve',
   mediaDir: '',
+  tentacle: { autoJam: true, setFrameRate: true, offsetFrames: 0, autoCorrect: true },
 };
 function loadSettings(): Settings {
-  try { return { ...defaults, ...JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) }; } catch { return { ...defaults }; }
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'));
+    return { ...defaults, ...saved, tentacle: { ...defaults.tentacle, ...saved.tentacle } };
+  } catch { return { ...defaults, tentacle: { ...defaults.tentacle } }; }
 }
 let settings = loadSettings();
 function saveSettings() { writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2)); }
@@ -84,6 +97,107 @@ function inputName(id: number): string {
   return i?.longName || i?.shortName || (id ? `Input ${id}` : '');
 }
 
+// ----------------------------- Tentacle Sync --------------------------------
+// Jams USB-connected Tentacle Sync units to the same timecode the EDL uses
+// (the switcher's, or this computer's clock), so camera files conform.
+
+/** Switcher timecode anchored to performance.now(), refreshed every 5 s for the live display. */
+let atemClock: AtemAnchor & { df: boolean } | null = null;
+atem.on('updatedTime', (t: { hour: number; minute: number; second: number; frame: number; dropFrame?: boolean }) => {
+  const fr = frameRateFromVideoMode(atem.state?.settings?.videoMode);
+  const df = typeof t.dropFrame === 'boolean' ? t.dropFrame : fr.real % 1 !== 0 && (fr.base === 30 || fr.base === 60);
+  atemClock = { frames: tcToFrames(t.hour, t.minute, t.second, t.frame, fr.base, df), ms: performance.now(), df };
+});
+atem.on('disconnected', () => { atemClock = null; });
+setInterval(() => { if (connected) atem.requestTime().catch(() => undefined); }, 5000);
+
+function sourceTimecode(): { timecode: string | null; rate: string; tentacleRate: string } {
+  const fr = frameRateFromVideoMode(atem.state?.settings?.videoMode);
+  if (settings.tcSource === 'clock') {
+    const c = readClockTime(connected ? atem as unknown as AtemLike : null);
+    return { timecode: framesToTc(c.anchor.frames, c.fr.base, c.dropFrame), rate: `${c.fr.label}${c.dropFrame ? ' DF' : ''}`, tentacleRate: formatRate(tentacleRateFor(c.fr, c.dropFrame).rate) };
+  }
+  if (!connected || !atemClock) return { timecode: null, rate: fr.label, tentacleRate: formatRate(tentacleRateFor(fr, false).rate) };
+  const now = atemClock.frames + ((performance.now() - atemClock.ms) / 1000) * fr.real;
+  return { timecode: framesToTc(now, fr.base, atemClock.df), rate: `${fr.label}${atemClock.df ? ' DF' : ''}`, tentacleRate: formatRate(tentacleRateFor(fr, atemClock.df).rate) };
+}
+
+const tentacle = {
+  plugged: [] as { key: string; pid: number }[],
+  usbError: null as string | null,
+  busy: null as 'jam' | 'check' | null,
+  reports: [] as DeviceReport[],
+  log: [] as { at: string; ok: boolean; text: string }[],
+  autoJammed: new Set<string>(),
+};
+
+function tentacleNote(ok: boolean, text: string) {
+  tentacle.log.unshift({ at: new Date().toLocaleTimeString(), ok, text });
+  tentacle.log.length = Math.min(tentacle.log.length, 30);
+  log(`Tentacle: ${text}`);
+}
+
+function describeReport(r: DeviceReport): string {
+  if (r.error) return `${r.device}: ${r.error}`;
+  const off = r.offsetFrames === undefined ? '' : r.offsetFrames === 0 ? ', in sync'
+    : `, ${Math.abs(r.offsetFrames)} frame${Math.abs(r.offsetFrames) === 1 ? '' : 's'} ${r.offsetFrames > 0 ? 'ahead' : 'behind'}`;
+  return `${r.device}: ${r.timecode ?? '?'} @ ${r.frameRate}${off}`;
+}
+
+async function jamAll(reason: string): Promise<DeviceReport[]> {
+  if (tentacle.busy) throw new Error('Busy — wait for the current jam or check to finish.');
+  if (settings.tcSource === 'atem' && !connected) throw new Error(`Not connected to the switcher at ${settings.atemIp}.`);
+  tentacle.busy = 'jam';
+  try {
+    const t = settings.tentacle;
+    const r = await jamTentacles(connected ? atem as unknown as AtemLike : null, {
+      source: settings.tcSource, setFrameRate: t.setFrameRate, offsetFrames: t.offsetFrames, autoCorrect: t.autoCorrect,
+    });
+    tentacle.reports = r.reports;
+    const from = r.source === 'atem' ? 'switcher' : 'computer clock';
+    for (const rep of r.reports) tentacleNote(!rep.error && rep.offsetFrames === 0, `${reason} to ${from} ${r.sourceTimecode} → ${describeReport(rep)}`);
+    return r.reports;
+  } catch (e: any) {
+    tentacleNote(false, `${reason} failed: ${e?.message ?? e}`);
+    throw e;
+  } finally {
+    tentacle.busy = null;
+  }
+}
+
+async function checkAll(): Promise<DeviceReport[]> {
+  if (tentacle.busy) throw new Error('Busy — wait for the current jam or check to finish.');
+  tentacle.busy = 'check';
+  try {
+    const r = await checkTentacles(connected ? atem as unknown as AtemLike : null, settings.tcSource);
+    tentacle.reports = r.reports;
+    for (const rep of r.reports) tentacleNote(!rep.error && (rep.offsetFrames ?? 0) === 0, `Check → ${describeReport(rep)}`);
+    return r.reports;
+  } finally {
+    tentacle.busy = null;
+  }
+}
+
+/** Watch USB for Tentacles coming and going; auto-jam each new one. */
+setInterval(async () => {
+  try {
+    tentacle.plugged = await listTentacles();
+    tentacle.usbError = null;
+  } catch (e: any) {
+    tentacle.plugged = [];
+    tentacle.usbError = e?.message ?? String(e);
+  }
+  const keys = new Set(tentacle.plugged.map(p => p.key));
+  for (const k of tentacle.autoJammed) if (!keys.has(k)) tentacle.autoJammed.delete(k);
+  if (!settings.tentacle.autoJam || tentacle.busy) return;
+  if (settings.tcSource === 'atem' && (!connected || !atemClock)) return;
+  const fresh = tentacle.plugged.filter(p => !tentacle.autoJammed.has(p.key));
+  if (!fresh.length) return;
+  fresh.forEach(p => tentacle.autoJammed.add(p.key));
+  // Give a just-plugged Tentacle a moment to finish starting up.
+  setTimeout(() => { jamAll('Auto-jam').catch(() => undefined); }, 1500);
+}, 1000);
+
 // --------------------------------- API --------------------------------------
 const app = express();
 app.use(express.json());
@@ -108,6 +222,10 @@ app.get('/api/status', (_req, res) => {
     export: lastExport,
     platform: settings.platform,
     platformName: PLATFORMS[settings.platform],
+    tentacles: {
+      plugged: tentacle.plugged.length, usbError: tentacle.usbError, busy: tentacle.busy,
+      reports: tentacle.reports, log: tentacle.log, source: settings.tcSource, ...sourceTimecode(),
+    },
     host: process.env.HOST_LABEL || os.hostname(),
     version: updater.info.current,
     update: updater.info,
@@ -143,6 +261,16 @@ app.post('/api/settings', wrap(async (req, res) => {
     if (typeof b[k] === 'string') (settings as any)[k] = b[k].trim();
   }
   if (typeof b.me === 'number') settings.me = b.me;
+  if (b.tentacle && typeof b.tentacle === 'object') {
+    const t = b.tentacle;
+    for (const k of ['autoJam', 'setFrameRate', 'autoCorrect'] as const) if (typeof t[k] === 'boolean') settings.tentacle[k] = t[k];
+    if (t.offsetFrames !== undefined) {
+      const n = Number(t.offsetFrames);
+      if (!Number.isInteger(n) || Math.abs(n) > 30) throw new Error('Tentacle offset must be a whole number of frames, −30 to 30.');
+      settings.tentacle.offsetFrames = n;
+    }
+    if (t.autoJam === true) tentacle.autoJammed.clear(); // re-arm for Tentacles already plugged in
+  }
   if (b.reelNames && typeof b.reelNames === 'object') {
     settings.reelNames = Object.fromEntries(Object.entries(b.reelNames).filter(([, v]) => typeof v === 'string' && (v as string).trim()).map(([k, v]) => [k, (v as string).trim()]));
   }
@@ -201,6 +329,9 @@ app.post('/api/marker', wrap(async (req, res) => {
   const tc = await logger.addMarker(note);
   res.json({ note, timeline: tc });
 }));
+
+app.post('/api/tentacle/jam', wrap(async (_req, res) => res.json({ reports: await jamAll('Jam') })));
+app.post('/api/tentacle/check', wrap(async (_req, res) => res.json({ reports: await checkAll() })));
 
 app.post('/api/dismiss-recovered', wrap(async (_req, res) => {
   recoveredSession = null;
