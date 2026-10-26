@@ -101,15 +101,22 @@ function inputName(id: number): string {
 // Jams USB-connected Tentacle Sync units to the same timecode the EDL uses
 // (the switcher's, or this computer's clock), so camera files conform.
 
-/** Switcher timecode anchored to performance.now(), refreshed every 5 s for the live display. */
+/** Switcher timecode anchored to performance.now() for the live display. Like the EDL logger,
+ *  it anchors on the least-delayed reply of the last minute (replies can arrive frames late). */
 let atemClock: AtemAnchor & { df: boolean } | null = null;
+let atemReplies: { frames: number; ms: number; lead: number }[] = [];
 atem.on('updatedTime', (t: { hour: number; minute: number; second: number; frame: number; dropFrame?: boolean }) => {
   const fr = frameRateFromVideoMode(atem.state?.settings?.videoMode);
   const df = typeof t.dropFrame === 'boolean' ? t.dropFrame : fr.real % 1 !== 0 && (fr.base === 30 || fr.base === 60);
-  atemClock = { frames: tcToFrames(t.hour, t.minute, t.second, t.frame, fr.base, df), ms: performance.now(), df };
+  const ms = performance.now();
+  const frames = tcToFrames(t.hour, t.minute, t.second, t.frame, fr.base, df);
+  atemReplies = atemReplies.filter(x => ms - x.ms < 60000);
+  atemReplies.push({ frames, ms, lead: frames - (ms / 1000) * fr.real });
+  const best = atemReplies.reduce((a, b) => (b.lead > a.lead ? b : a));
+  atemClock = { frames: best.frames, ms: best.ms, df };
 });
-atem.on('disconnected', () => { atemClock = null; });
-setInterval(() => { if (connected) atem.requestTime().catch(() => undefined); }, 5000);
+atem.on('disconnected', () => { atemClock = null; atemReplies = []; });
+setInterval(() => { if (connected) atem.requestTime().catch(() => undefined); }, 1000);
 
 function sourceTimecode(): { timecode: string | null; rate: string; tentacleRate: string } {
   const fr = frameRateFromVideoMode(atem.state?.settings?.videoMode);
